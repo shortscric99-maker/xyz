@@ -1,11 +1,12 @@
 // Initialize Firebase (Replace with your own config)
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT.firebaseapp.com",
-  projectId: "YOUR_PROJECT",
-  storageBucket: "YOUR_PROJECT.appspot.com",
-  messagingSenderId: "...",
-  appId: "..."
+  apiKey: "AIzaSyArSAU4igEY7LKfx-G2kE8kEj9msssK9hs",
+  authDomain: "cric-scorer-fc6ab.firebaseapp.com",
+  databaseURL: "https://cric-scorer-fc6ab-default-rtdb.firebaseio.com",
+  projectId: "cric-scorer-fc6ab",
+  storageBucket: "cric-scorer-fc6ab.firebasestorage.app",
+  messagingSenderId: "763007551778",
+  appId: "1:763007551778:web:c876262a3cff1fee813d7b"
 };
 
 const app = firebase.initializeApp(firebaseConfig);
