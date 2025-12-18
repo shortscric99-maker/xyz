@@ -1,0 +1,77 @@
+:root {
+    --bg: #121212;
+    --card: #1e1e1e;
+    --primary: #4caf50;
+    --text: #ffffff;
+    --text-muted: #aaaaaa;
+    --accent: #bb86fc;
+    --danger: #cf6679;
+}
+
+body {
+    background-color: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#app { max-width: 600px; margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; }
+
+.app-header {
+    padding: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--card);
+    position: sticky; top: 0; z-index: 10;
+}
+
+.view { padding: 1rem; display: none; }
+.view.active { display: block; animation: fadeIn 0.3s; }
+
+/* Components */
+.primary-btn {
+    background: var(--primary);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-weight: 600;
+    width: 100%;
+    font-size: 1rem;
+    cursor: pointer;
+}
+
+.score-card-live {
+    background: var(--card);
+    padding: 20px;
+    border-radius: 12px;
+    text-align: center;
+    margin-bottom: 20px;
+}
+
+.main-score { font-size: 3rem; font-weight: 800; line-height: 1; margin: 10px 0; }
+
+.players-live { background: var(--card); padding: 15px; border-radius: 12px; margin-bottom: 20px; }
+.batter, .bowler-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #333; }
+.active-striker { color: var(--primary); font-weight: bold; }
+.active-striker::before { content: "🏏 "; }
+
+/* Scoring Pad */
+.scorer-pad {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #000; padding: 10px; max-width: 600px; margin: 0 auto;
+    border-top: 1px solid #333;
+}
+.pad-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.pad-row button {
+    flex: 1; padding: 15px; border-radius: 8px; border: none;
+    font-size: 1.2rem; font-weight: bold; cursor: pointer;
+}
+.run-btn { background: #333; color: white; }
+.extra-btn { background: var(--accent); color: black; }
+.wicket-btn { background: var(--danger); color: white; }
+.hidden { display: none !important; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
