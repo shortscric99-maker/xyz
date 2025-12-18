@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>CricScore Pro</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
 </head>
 <body>
     <div id="app">
@@ -39,14 +39,14 @@
                 <form id="create-match-form">
                     <!-- Basic Info -->
                     <div class="form-group">
-                        <input type="text" id="match-title" placeholder="Match Title (e.g. Sunday League Final)" required>
-                        <input type="text" id="venue" placeholder="Venue / Ground" required>
+                        <input type="text" id="match-title" placeholder="Match Title (e.g. Sunday League Final)" required />
+                        <input type="text" id="venue" placeholder="Venue / Ground" required />
                         <div class="row">
-                            <input type="date" id="match-date" required>
-                            <input type="time" id="match-time" required>
+                            <input type="date" id="match-date" required />
+                            <input type="time" id="match-time" required />
                         </div>
                         <div class="row">
-                            <input type="number" id="overs" placeholder="Overs (e.g. 20)" value="20" required>
+                            <input type="number" id="overs" placeholder="Overs (e.g. 20)" value="20" required />
                             <select id="ball-type">
                                 <option value="tennis">Tennis Ball</option>
                                 <option value="leather">Leather Ball</option>
@@ -58,7 +58,7 @@
                     <div class="team-setup-container">
                         <!-- Team A -->
                         <div class="team-card">
-                            <input type="text" id="team1-name" placeholder="Team A Name" class="team-name-input" required>
+                            <input type="text" id="team1-name" placeholder="Team A Name" class="team-name-input" required />
                             <textarea id="team1-players-raw" placeholder="Paste 11 Player Names (one per line)..." rows="6"></textarea>
                             <button type="button" class="secondary-btn" onclick="parsePlayers('team1')">Confirm Players</button>
                             
@@ -70,7 +70,7 @@
 
                         <!-- Team B -->
                         <div class="team-card">
-                            <input type="text" id="team2-name" placeholder="Team B Name" class="team-name-input" required>
+                            <input type="text" id="team2-name" placeholder="Team B Name" class="team-name-input" required />
                             <textarea id="team2-players-raw" placeholder="Paste 11 Player Names (one per line)..." rows="6"></textarea>
                             <button type="button" class="secondary-btn" onclick="parsePlayers('team2')">Confirm Players</button>
                             
@@ -144,19 +144,44 @@
                         <div class="crr-display">CRR: <span id="crr">0.00</span></div>
                     </div>
 
-                    <div class="batsmen-table">
-                        <div class="table-row header">
-                            <span>Batter</span><span>R</span><span>B</span><span>4s</span><span>6s</span><span>SR</span>
+                    <div class="scoring-grid">
+                        <!-- Left: full batting list -->
+                        <div class="batting-list-card">
+                            <h4>Batting — <span id="batting-team-name-mini"></span></h4>
+                            <div id="batting-players-list" class="players-list">
+                                <!-- Players rendered here -->
+                            </div>
                         </div>
-                        <div class="table-row active" id="striker-row">
-                            <span class="p-name" id="striker-name">Striker</span>
-                            <span id="s-runs">0</span><span id="s-balls">0</span>
-                            <span id="s-4s">0</span><span id="s-6s">0</span><span id="s-sr">0.0</span>
+
+                        <!-- Middle: score & batsmen -->
+                        <div class="central-score-card">
+                            <div class="batsmen-table">
+                                <div class="table-row header">
+                                    <span>Batter</span><span>R</span><span>B</span><span>4s</span><span>6s</span><span>SR</span>
+                                </div>
+                                <div class="table-row active" id="striker-row">
+                                    <span class="p-name" id="striker-name">Striker</span>
+                                    <span id="s-runs">0</span><span id="s-balls">0</span>
+                                    <span id="s-4s">0</span><span id="s-6s">0</span><span id="s-sr">0.0</span>
+                                </div>
+                                <div class="table-row" id="non-striker-row">
+                                    <span class="p-name" id="ns-name">Non-Striker</span>
+                                    <span id="ns-runs">0</span><span id="ns-balls">0</span>
+                                    <span id="ns-4s">0</span><span id="ns-6s">0</span><span id="ns-sr">0.0</span>
+                                </div>
+                                <div class="recent-overs-container">
+                                    <small>This Over:</small>
+                                    <div id="recent-balls" class="ball-row"></div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="table-row" id="non-striker-row">
-                            <span class="p-name" id="ns-name">Non-Striker</span>
-                            <span id="ns-runs">0</span><span id="ns-balls">0</span>
-                            <span id="ns-4s">0</span><span id="ns-6s">0</span><span id="ns-sr">0.0</span>
+
+                        <!-- Right: bowling list -->
+                        <div class="bowling-list-card">
+                            <h4>Bowling — <span id="bowling-team-name-mini"></span></h4>
+                            <div id="bowling-players-list" class="players-list">
+                                <!-- Bowler stats rendered here -->
+                            </div>
                         </div>
                     </div>
 
@@ -164,11 +189,7 @@
                         <span class="p-name" id="bowler-name-vertical">Bowler</span>
                         <span class="b-stats"><span id="b-overs-vert">0.0</span>- <span id="b-maidens-vert">0</span>- <span id="b-runs-vert">0</span>- <span id="b-wickets-vert">0</span></span>
                     </div>
-                    
-                    <div class="recent-overs-container">
-                        <small>This Over:</small>
-                        <div id="recent-balls" class="ball-row"></div>
-                    </div>
+
                 </div>
 
                 <!-- SCORING CONTROLS (Fixed to Bottom) -->
@@ -246,7 +267,7 @@
         </div>
     </div>
 
-    <!-- Scripts remain same -->
+    <!-- Scripts -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
