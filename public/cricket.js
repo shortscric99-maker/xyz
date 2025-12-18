@@ -1,63 +1,81 @@
 const CricketEngine = {
-    // Calculates new state based on current state and event
     processBall: (matchState, event) => {
-        let { liveScore, history } = matchState;
+        let ls = JSON.parse(JSON.stringify(matchState.liveScore)); // Deep copy
         
-        // Deep copy to avoid direct mutation issues
-        let newState = JSON.parse(JSON.stringify(liveScore));
+        const runs = event.runs || 0;
+        const type = event.type || 'legal'; // legal, WD, NB, W, B, LB
         
-        const runs = event.runs || 0; // 0,1,2,3,4,6
-        const isWide = event.type === 'WD';
-        const isNoBall = event.type === 'NB';
-        const isWicket = event.type === 'W';
-        const isBye = event.type === 'B' || event.type === 'LB';
-        
-        // 1. Update Team Score
-        let ballRuns = runs;
-        if (isWide || isNoBall) ballRuns += 1; // Extra run
-        
-        newState.runs += ballRuns;
+        // --- 1. Team Score ---
+        let totalRuns = runs;
+        if (type === 'WD' || type === 'NB') totalRuns += 1;
+        ls.runs += totalRuns;
 
-        // 2. Update Balls/Overs
-        if (!isWide && !isNoBall) {
-            // Valid ball
-            let balls = Math.round((newState.overs % 1) * 10);
+        // --- 2. Batter Stats ---
+        // Wides don't count as balls faced. No Balls count as balls faced but runs go to bat if hit?
+        // Simplified: Wides = 0 balls, Legal/NB/W = 1 ball
+        if (type !== 'WD') {
+            ls.strikerStats.balls += 1;
+        }
+
+        // Runs attribution
+        if (type === 'legal' || type === 'NB') {
+            ls.strikerStats.runs += runs;
+            if (runs === 4) ls.strikerStats.fours++;
+            if (runs === 6) ls.strikerStats.sixes++;
+        }
+        // Byes/Legbyes don't add to batter runs
+
+        // --- 3. Bowler Stats ---
+        // Bowler concedes runs (except byes/legbyes)
+        if (type !== 'B' && type !== 'LB') {
+            ls.bowlerStats.runs += totalRuns;
+        }
+        
+        // Legal balls count for over
+        if (type !== 'WD' && type !== 'NB') {
+            // Add 0.1 to over count (decimal math logic needed)
+            let balls = Math.round((ls.bowlerStats.overs % 1) * 10);
             balls++;
             if (balls === 6) {
-                newState.overs = Math.floor(newState.overs) + 1;
-                // Swap strike at end of over
-                [newState.striker, newState.nonStriker] = [newState.nonStriker, newState.striker];
+                ls.bowlerStats.overs = Math.floor(ls.bowlerStats.overs) + 1;
+                ls.overs = Math.floor(ls.overs) + 1;
+                // Swap Ends at over end
+                [ls.striker, ls.nonStriker] = [ls.nonStriker, ls.striker];
+                [ls.strikerStats, ls.nonStrikerStats] = [ls.nonStrikerStats, ls.strikerStats];
             } else {
-                newState.overs = Math.floor(newState.overs) + (balls / 10);
+                ls.bowlerStats.overs += 0.1;
+                ls.overs += 0.1;
             }
         }
 
-        // 3. Wickets
-        if (isWicket) {
-            newState.wickets += 1;
-            // Logic to replace striker would happen in UI prompt, 
-            // here we just mark the wicket count
+        // --- 4. Wickets ---
+        if (type === 'W') {
+            ls.wickets++;
+            ls.bowlerStats.wickets++;
+            // Reset stats for new batter would happen here in full version
+            // For now, we just reset the striker name in UI via prompt or next logic
+            ls.strikerStats = { runs: 0, balls: 0, fours: 0, sixes: 0 }; 
         }
 
-        // 4. Rotate Strike (Runs)
-        // If runs are odd, swap (unless it's a boundary 4/6 which are even usually, but handling runnings)
-        // Note: Logic simplifies if we assume boundary=4/6 no run, run=1/2/3
-        if ((runs % 2 !== 0)) {
-             [newState.striker, newState.nonStriker] = [newState.nonStriker, newState.striker];
+        // --- 5. Rotate Strike (Odd Runs) ---
+        if (runs % 2 !== 0) {
+            [ls.striker, ls.nonStriker] = [ls.nonStriker, ls.striker];
+            [ls.strikerStats, ls.nonStrikerStats] = [ls.nonStrikerStats, ls.strikerStats];
         }
 
-        // 5. Update History
-        const logEntry = {
-            ball: newState.overs,
-            runs: runs,
-            event: event.type || 'legal',
-            bowler: newState.bowler,
-            striker: newState.striker
-        };
-        
+        // --- 6. Recent Balls String ---
+        let ballStr = runs.toString();
+        if (type === 'WD') ballStr = 'WD';
+        if (type === 'NB') ballStr = 'NB';
+        if (type === 'W') ballStr = 'W';
+        if (runs === 4) ballStr = '4';
+        if (runs === 6) ballStr = '6';
+
+        ls.recentBalls.push(ballStr);
+
         return {
-            liveScore: newState,
-            logEntry: logEntry
+            liveScore: ls,
+            logEntry: { ...event, over: ls.overs }
         };
     }
 };
