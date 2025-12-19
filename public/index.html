@@ -111,33 +111,14 @@
 
             <!-- 4. Live Match View -->
             <section id="view-match" class="view hidden">
-                <!-- MAIN IMPORTANT SCORECARD AT TOP -->
-                <div class="main-score-container top-important">
-                    <div class="teams-row">
-                        <div class="team-box batting" id="batting-team-box">
-                            <div class="team-abbrev" id="batting-team-display">IND</div>
-                            <div class="team-meta">
-                                <div id="score-display" class="main-score">0/0</div>
-                                <div id="overs-display" class="sub-text">(0.0)</div>
-                            </div>
-                        </div>
-
-                        <div class="team-box bowling" id="bowling-team-box">
-                            <div class="team-abbrev" id="bowling-team-display">AUS</div>
-                            <div class="team-meta">
-                                <div id="bowling-current">Bowler: <span id="bowler-name">Bowler</span></div>
-                                <div id="bowler-stats-small" class="sub-text">
-                                    <span id="b-overs">0.0</span>-<span id="b-maidens">0</span>-<span id="b-runs">0</span>-<span id="b-wickets">0</span>
-                                </div>
-                            </div>
-                        </div>
+                <!-- Scoreboard -->
+                <div class="score-card-live">
+                    <div class="match-status-bar">
+                        <span id="live-match-title">Loading...</span>
+                        <span id="live-match-venue"></span>
                     </div>
 
-                    <div class="crr-display">CRR: <span id="crr">0.00</span></div>
-                </div>
-
-                <!-- Top: Current Play (Striker/Non-Striker/Bowler/This Over/Target banner) -->
-                <div class="score-card-live">
+                    <!-- Top: Current Play (Striker/Non-Striker/Bowler/This Over/Target banner) -->
                     <div class="current-play" id="current-play">
                         <div class="current-batters">
                             <div class="batter-card">
@@ -170,24 +151,29 @@
                         </div>
                     </div>
 
-                    <!-- Full Batting Table (tabular format) -->
-                    <div class="batsmen-table" id="batsmen-table">
-                        <div class="table-row header">
-                            <span>Batter</span><span>R</span><span>B</span><span>4s</span><span>6s</span><span>SR / Status</span>
-                        </div>
-                        <div id="batsmen-list-table">
-                            <!-- JS will populate full batting list rows here in table-row format -->
-                        </div>
-                    </div>
+                    <!-- Middle: Score summary -->
+                    <div class="main-score-container">
+                        <div class="teams-row">
+                            <div class="team-box batting" id="batting-team-box">
+                                <div class="team-abbrev" id="batting-team-display">IND</div>
+                                <div class="team-meta">
+                                    <div id="score-display">0/0</div>
+                                    <div id="overs-display" class="sub-text">(0.0)</div>
+                                </div>
+                            </div>
 
-                    <!-- Bowling Table (tabular format) -->
-                    <div class="bowling-list" id="bowling-list">
-                        <div class="table-row header">
-                            <span>Bowler</span><span>O</span><span>B</span><span>W</span><span>M</span><span>R</span>
+                            <div class="team-box bowling" id="bowling-team-box">
+                                <div class="team-abbrev" id="bowling-team-display">AUS</div>
+                                <div class="team-meta">
+                                    <div id="bowling-current">Bowler: <span id="bowler-name">Bowler</span></div>
+                                    <div id="bowler-stats-small" class="sub-text">
+                                        <span id="b-overs">0.0</span>-<span id="b-maidens">0</span>-<span id="b-runs">0</span>-<span id="b-wickets">0</span>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div id="bowling-table-body">
-                            <!-- JS will populate bowlers rows here -->
-                        </div>
+
+                        <div class="crr-display">CRR: <span id="crr">0.00</span></div>
                     </div>
 
                     <!-- Bottom: Full detailed scorecards (both innings / historical) -->
@@ -279,4 +265,4 @@
     <script src="cricket.js"></script>
     <script src="app.js"></script>
 </body>
-</html>
+                                                                                                        </html>
