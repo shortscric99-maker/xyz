@@ -13,6 +13,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!user) AuthService.signInAnonymously();
         handleRoute();
     });
+
+    // Setup tab navigation on live match page
+    setupScoreTabNavigation();
 });
 window.addEventListener('hashchange', handleRoute);
 
@@ -103,7 +106,7 @@ window.selectTossWinner = (teamKey, btn) => {
 window.selectTossDecision = (decision, btn) => {
     tossDecision = decision; document.querySelectorAll('#toss-decision-options .toss-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); checkTossReady();
 };
-function checkTossReady(){ if (tossWinner && tossDecision) { document.getElementById('opener-selection').classList.remove('hidden'); populateOpenerDropdowns(); document.getElementById('confirm-toss-btn').disabled = false; } }
+function checkTossReady(){ if (tossWinner && tossDecision) { document.getElementById('opener-selection').classList.remove('hidden'); populateOpenerDropdowns(); document.getElementById('confirm-toss-bt[...] }
 function populateOpenerDropdowns() {
     if (!currentMatchDataLocal) return;
     const battingTeamKey = (tossDecision === 'bat') ? tossWinner : (tossWinner === 'teamA' ? 'teamB' : 'teamA');
@@ -155,9 +158,27 @@ window.finalizeToss = async () => {
     window.location.hash = `match/${currentMatchId}`;
 };
 
+// --- NAV TAB LOGIC FOR Score PAGE ---
+function setupScoreTabNavigation() {
+    window.showScoreTab = (tab) => {
+        document.querySelectorAll('.score-tab').forEach(btn => btn.classList.remove('active'));
+        document.querySelectorAll('.score-tab-panel').forEach(p => p.classList.remove('active'));
+
+        if (tab === 'live') {
+            document.getElementById('tab-live').classList.add('active');
+            document.getElementById('tab-panel-live').classList.add('active');
+        } else if (tab === 'scorecard') {
+            document.getElementById('tab-scorecard').classList.add('active');
+            document.getElementById('tab-panel-scorecard').classList.add('active');
+        }
+    };
+}
+
 // Live scoring
 function initMatchView(matchId){
     document.getElementById('view-match').classList.remove('hidden');
+    // Always show 'Live' first when entering match view
+    showScoreTab('live');
     if (unsubscribeMatch) unsubscribeMatch();
     unsubscribeMatch = DataService.subscribeToMatch(matchId, (match) => {
         currentMatchData = match;
@@ -247,6 +268,7 @@ function renderLiveScore(match){
 
 function renderFullScorecards(match) {
     const container = document.getElementById('full-scorecards');
+    if (!container) return; // If element not present (shouldn't happen)
     container.innerHTML = '';
 
     // Show previous innings summaries (if any)
@@ -394,7 +416,7 @@ function getExtrasSummary(playerStats) {
     return { text: '0 (no breakdown available)' };
 }
 
-// ...[rest of file as is]
+// ...[rest of file as is remains the same]...
 
 function renderPlayersInline(playerStatsObj, battingPlayers) {
     // show each player with runs (R/B) and status
@@ -412,6 +434,10 @@ function renderBowlersInline(bowlersObj) {
         return `${name} ${b.overs || 0}ov ${b.wickets || 0}wkts R:${b.runs || 0}`;
     }).join(' • ');
 }
+
+// [SCORING ACTIONS AND REST REMAIN UNCHANGED—No code change below this line for the tabs rework.]
+
+// [All code below stays the same as before, including recordScore, wickets, modals, etc.]
 
 // Scoring Actions
 window.recordScore = async (runs, type = 'legal') => {
