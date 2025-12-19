@@ -397,7 +397,7 @@ window.recordScore = async (runs, type = 'legal') => {
                     winner = fullMatch.teams[finalLS.bowlingTeam]?.name || null;
                 }
             } else {
-                 // if no target (e.g., single innings), winner determination can be based on runs or mark as complete
+               // if no target (e.g., single innings), winner determination can be based on runs or mark as complete
                 winner = null;
             }
             const completeLog = { type: 'matchComplete', winner: winner || 'N/A', time: (new Date()).toISOString() };
@@ -568,4 +568,4 @@ window.shareMatch = () => {
     } else if (navigator.clipboard) {
         navigator.clipboard.writeText(url).then(()=>{ alert("Match link copied to clipboard."); }).catch(()=>{ prompt("Copy this link:", url); });
     } else { prompt("Copy this link:", url); }
-};
+};   
