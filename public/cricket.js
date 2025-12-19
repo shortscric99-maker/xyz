@@ -2,7 +2,7 @@
 const CricketEngine = {
     /**
      * processBall(matchState, event)
-     * event: { runs: number, type: 'legal'|'WD'|'NB'|'W'|'B'|'LB', dismissal?: {mode, fielder}, metadata?: {} }
+     * event: { runs: number, type: 'legal'|'WD'|'NB'|'W'|'B'|'LB', dismissal?: {mode, fielder} }
      *
      * Returns:
      * {
@@ -11,13 +11,14 @@ const CricketEngine = {
      *   overCompleted: boolean,
      *   wicketOccurred: boolean,
      *   inningsEnded: boolean,
+     *   matchCompleted: boolean,
      *   ballBadge: string
      * }
      */
     processBall: (matchState, event) => {
-        // Deep copy to avoid mutating incoming object
+        // Defensive: get current liveScore (could be undefined for new match)
         let ls = JSON.parse(JSON.stringify(matchState.liveScore || {}));
-        const matchOversLimit = matchState.overs || 0;
+        const matchOversLimit = (matchState.overs || (matchState.liveScore && matchState.liveScore.matchOvers) || 0);
 
         const runs = event.runs || 0;
         const type = event.type || 'legal'; // legal, WD, NB, W, B, LB
@@ -41,49 +42,44 @@ const CricketEngine = {
         ls.wickets = ls.wickets || 0;
         ls.innings = ls.innings || 1;
 
-        // If no bowler object exists for current bowler, ensure it exists
-        if (ls.bowler && !ls.bowlers[ls.bowler]) {
-            ls.bowlers[ls.bowler] = { runs: 0, wickets: 0, overs: 0, maidens: 0, ballsInCurrentOver: 0 };
-        }
+        // ensure matchOvers set for convenience
+        ls.matchOvers = matchOversLimit;
 
-        // Make sure all batting team players have a stats object if available in matchState
+        // Build playerStats for known players if possible
         try {
             const battingPlayers = (matchState.teams && matchState.teams[ls.battingTeam] && matchState.teams[ls.battingTeam].players) || [];
             battingPlayers.forEach(p => {
                 if (!ls.playerStats[p]) ls.playerStats[p] = { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
             });
-
-            // Also ensure bowlers map for bowling team
             const bowlingPlayers = (matchState.teams && matchState.teams[ls.bowlingTeam] && matchState.teams[ls.bowlingTeam].players) || [];
             bowlingPlayers.forEach(p => {
                 if (!ls.bowlers[p]) ls.bowlers[p] = { runs: 0, wickets: 0, overs: 0, maidens: 0, ballsInCurrentOver: 0 };
             });
         } catch (e) {
-            // ignore if structure missing
+            // nothing
         }
 
-        // Get current bowler stats reference
+        // Ensure current bowler entry
         const currentBowler = ls.bowler;
+        if (currentBowler && !ls.bowlers[currentBowler]) {
+            ls.bowlers[currentBowler] = { runs: 0, wickets: 0, overs: 0, maidens: 0, ballsInCurrentOver: 0 };
+        }
         const bowlerStats = currentBowler ? ls.bowlers[currentBowler] : null;
 
         // Compute current over state
         let { whole: oversWhole, balls: ballsInOver } = getBallsFromDecimal(ls.overs || 0);
 
-        // --- 1. Team Score ---
+        // Team score update
         let totalRuns = runs;
         if (type === 'WD' || type === 'NB') totalRuns += 1;
         ls.runs = (ls.runs || 0) + totalRuns;
 
-        // --- 2. Batter Stats ---
-        // Wides don't count as balls faced.
+        // Batter stats
         if (type !== 'WD') {
-            // Increment ball faced for striker for legal, NB, W, B, LB
             if (ls.striker) {
                 ls.playerStats[ls.striker].balls = (ls.playerStats[ls.striker].balls || 0) + 1;
             }
         }
-
-        // Runs attribution to batter
         if (type === 'legal' || type === 'NB') {
             if (ls.striker) {
                 ls.playerStats[ls.striker].runs = (ls.playerStats[ls.striker].runs || 0) + runs;
@@ -92,92 +88,66 @@ const CricketEngine = {
             }
         }
 
-        // --- 3. Bowler Stats ---
+        // Bowler stats
         if (bowlerStats) {
-            // Bowler concedes runs (except pure byes/legbyes: type B or LB do not count as bowler runs)
             if (type !== 'B' && type !== 'LB') {
                 bowlerStats.runs = (bowlerStats.runs || 0) + totalRuns;
             }
-
-            // If it's a legal ball (treat NB as legal here in terms of ball count)
             if (type !== 'WD') {
                 bowlerStats.ballsInCurrentOver = (bowlerStats.ballsInCurrentOver || 0) + 1;
-                // We also update aggregate overs representation similarly to match-level
                 if (bowlerStats.ballsInCurrentOver === 6) {
                     bowlerStats.overs = Math.floor((bowlerStats.overs || 0)) + 1;
                     bowlerStats.ballsInCurrentOver = 0;
                 } else {
-                    // add 0.1 for display like 0.1 .. 0.5
                     bowlerStats.overs = (bowlerStats.overs || 0) + 0.1;
-                    // avoid floating accumulation error by rounding to 1 decimal
                     bowlerStats.overs = Math.round(bowlerStats.overs * 10) / 10;
                 }
             }
-
-            // If wicket, increment bowler wicket counter
             if (type === 'W') {
                 bowlerStats.wickets = (bowlerStats.wickets || 0) + 1;
             }
         }
 
         let overCompleted = false;
-        // Legal balls count for over (we treat NB as counting as ball here)
+        // Advance balls at match level
         if (type !== 'WD') {
             ballsInOver++;
             if (ballsInOver === 6) {
-                // Over complete
                 oversWhole = oversWhole + 1;
                 ballsInOver = 0;
                 overCompleted = true;
-
-                // increment bowler overs at match level already handled; ensure match-level bowler overs consistent
-                if (bowlerStats) {
-                    // bowlerStats.overs increment handled above; ensure integer if ended
-                    // reset ballsInCurrentOver already handled above
-                }
-
-                // Represent match-level overs as whole number
                 ls.overs = oversWhole;
-
-                // Swap striker/non-striker at over end
-                const tempName = ls.striker;
+                // swap strike
+                const tmp = ls.striker;
                 ls.striker = ls.nonStriker;
-                ls.nonStriker = tempName;
+                ls.nonStriker = tmp;
             } else {
-                // partial over -> represent as decimal 0.1 .. 0.5
                 ls.overs = oversWhole + ballsInOver * 0.1;
-                // round to 1 decimal
                 ls.overs = Math.round(ls.overs * 10) / 10;
             }
         }
 
-        // --- 4. Wickets ---
+        // Wickets
         let wicketOccurred = false;
         if (type === 'W') {
             wicketOccurred = true;
             ls.wickets = (ls.wickets || 0) + 1;
-
-            // increment bowler wicket handled above
-            // Mark striker as out in playerStats
             const outPlayer = ls.striker;
             if (outPlayer && ls.playerStats[outPlayer]) {
                 ls.playerStats[outPlayer].out = true;
                 ls.playerStats[outPlayer].outInfo = event.dismissal || { mode: 'unknown' };
             }
-
-            // Reset striker placeholder (new batter to be inserted by caller)
-            ls.strikerStats = { runs: 0, balls: 0, fours: 0, sixes: 0 }; // backward compat
-            // keep ls.striker value for log; caller should replace with new batter
+            // Keep striker until caller replaces
         }
 
-        // --- 5. Rotate Strike (Odd Runs for legal/NB) ---
+        // Rotate strike for odd runs
         if ((type === 'legal' || type === 'NB') && (runs % 2 !== 0)) {
-            const tempName = ls.striker;
+            const tmp = ls.striker;
             ls.striker = ls.nonStriker;
-            ls.nonStriker = tempName;
+            ls.nonStriker = tmp;
         }
 
-        // --- 6. Recent Balls String / Badge ---
+        // Recent balls / badge
         let ballStr = runs.toString();
         if (type === 'WD') ballStr = 'WD';
         if (type === 'NB') ballStr = 'NB';
@@ -187,27 +157,37 @@ const CricketEngine = {
 
         ls.recentBalls = ls.recentBalls || [];
         ls.recentBalls.push(ballStr);
-        // keep last 30 for safety
         if (ls.recentBalls.length > 30) ls.recentBalls = ls.recentBalls.slice(-30);
 
-        // Reset this-over badges if over completed
         if (overCompleted) {
+            // Reset this-over visuals (user wanted it cleared)
             ls.recentBalls = [];
         }
 
-        // --- 7. Check innings end by overs or all out ---
+        // Check innings end conditions
         let inningsEnded = false;
-        // Overs-based
+        let matchCompleted = false;
+
+        // overs-based
         if (overCompleted && (oversWhole >= matchOversLimit) && matchOversLimit > 0) {
             inningsEnded = true;
         }
 
-        // All-out: wickets equal players - 1
+        // all-out check
         try {
             const playersCount = (matchState.teams && matchState.teams[ls.battingTeam] && matchState.teams[ls.battingTeam].players.length) || 11;
             if (ls.wickets >= Math.max(0, playersCount - 1)) inningsEnded = true;
-        } catch (e) {
-            // ignore
+        } catch (e) {}
+
+        // chase-based check (only meaningful in innings 2)
+        const target = (ls.target || (matchState.liveScore && matchState.liveScore.target) || matchState.target) || null;
+        if (ls.innings === 2 && target !== null) {
+            if (ls.runs >= target) {
+                // target achieved -> end innings and match
+                inningsEnded = true;
+                matchCompleted = true;
+            }
+            // Also if balls exhausted (handled by overs-based) or all-out above
         }
 
         const logEntry = {
@@ -225,6 +205,7 @@ const CricketEngine = {
             overCompleted,
             wicketOccurred,
             inningsEnded,
+            matchCompleted,
             ballBadge: ballStr
         };
     }
