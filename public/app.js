@@ -103,18 +103,19 @@ window.selectTossDecision = (decision, btn) => {
     tossDecision = decision; document.querySelectorAll('#toss-decision-options .toss-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); checkTossReady();
 };
 function checkTossReady(){ if (tossWinner && tossDecision) { document.getElementById('opener-selection').classList.remove('hidden'); populateOpenerDropdowns(); document.getElementById('confirm-toss-btn').disabled = false; } }
-function populateOpenerDropdowns(){
+function populateOpenerDropdowns() {
+    if (!currentMatchDataLocal) return;
     const battingTeamKey = (tossDecision === 'bat') ? tossWinner : (tossWinner === 'teamA' ? 'teamB' : 'teamA');
     const bowlingTeamKey = (battingTeamKey === 'teamA') ? 'teamB' : 'teamA';
-    const battingPlayers = currentMatchData.teams[battingTeamKey].players;
-    const bowlingPlayers = currentMatchData.teams[bowlingTeamKey].players;
+    const battingPlayers = currentMatchDataLocal.teams[battingTeamKey].players;
+    const bowlingPlayers = currentMatchDataLocal.teams[bowlingTeamKey].players;
     const sSelect = document.getElementById('select-striker');
     const nsSelect = document.getElementById('select-non-striker');
     const bSelect = document.getElementById('select-bowler');
     sSelect.innerHTML = ''; nsSelect.innerHTML = ''; bSelect.innerHTML = '';
-    battingPlayers.forEach(p => { sSelect.add(new Option(p,p)); nsSelect.add(new Option(p,p)); });
-    if(nsSelect.options.length>1) nsSelect.selectedIndex = 1;
-    bowlingPlayers.forEach(p => bSelect.add(new Option(p,p)));
+    battingPlayers.forEach(p => { sSelect.add(new Option(p, p)); nsSelect.add(new Option(p, p)); });
+    if (nsSelect.options.length > 1) nsSelect.selectedIndex = 1;
+    bowlingPlayers.forEach(p => bSelect.add(new Option(p, p)));
 }
 
 window.finalizeToss = async () => {
