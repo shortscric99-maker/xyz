@@ -2,11 +2,11 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>CricScore Pro</title>
-    <link rel="stylesheet" href="style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css" />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
 </head>
 <body>
     <div id="app">
@@ -17,7 +17,6 @@
         </header>
 
         <main id="main-container">
-            
             <!-- 1. Dashboard -->
             <section id="view-dashboard" class="view active">
                 <div class="hero">
@@ -36,18 +35,18 @@
                     <h2>Match Details</h2>
                     <button class="back-btn" onclick="window.location.hash=''">Cancel</button>
                 </div>
-                
+
                 <form id="create-match-form">
                     <!-- Basic Info -->
                     <div class="form-group">
-                        <input type="text" id="match-title" placeholder="Match Title (e.g. Sunday League Final)" required>
-                        <input type="text" id="venue" placeholder="Venue / Ground" required>
+                        <input type="text" id="match-title" placeholder="Match Title (e.g. Sunday League Final)" required />
+                        <input type="text" id="venue" placeholder="Venue / Ground" required />
                         <div class="row">
-                            <input type="date" id="match-date" required>
-                            <input type="time" id="match-time" required>
+                            <input type="date" id="match-date" required />
+                            <input type="time" id="match-time" required />
                         </div>
                         <div class="row">
-                            <input type="number" id="overs" placeholder="Overs (e.g. 20)" value="20" required>
+                            <input type="number" id="overs" placeholder="Overs (e.g. 20)" value="20" required />
                             <select id="ball-type">
                                 <option value="tennis">Tennis Ball</option>
                                 <option value="leather">Leather Ball</option>
@@ -59,10 +58,10 @@
                     <div class="team-setup-container">
                         <!-- Team A -->
                         <div class="team-card">
-                            <input type="text" id="team1-name" placeholder="Team A Name" class="team-name-input" required>
+                            <input type="text" id="team1-name" placeholder="Team A Name" class="team-name-input" required />
                             <textarea id="team1-players-raw" placeholder="Paste 11 Player Names (one per line)..." rows="6"></textarea>
                             <button type="button" class="secondary-btn" onclick="parsePlayers('team1')">Confirm Players</button>
-                            
+
                             <div id="team1-roles" class="roles-select hidden">
                                 <label>Captain: <select id="team1-captain"></select></label>
                                 <label>WK: <select id="team1-wk"></select></label>
@@ -71,10 +70,10 @@
 
                         <!-- Team B -->
                         <div class="team-card">
-                            <input type="text" id="team2-name" placeholder="Team B Name" class="team-name-input" required>
+                            <input type="text" id="team2-name" placeholder="Team B Name" class="team-name-input" required />
                             <textarea id="team2-players-raw" placeholder="Paste 11 Player Names (one per line)..." rows="6"></textarea>
                             <button type="button" class="secondary-btn" onclick="parsePlayers('team2')">Confirm Players</button>
-                            
+
                             <div id="team2-roles" class="roles-select hidden">
                                 <label>Captain: <select id="team2-captain"></select></label>
                                 <label>WK: <select id="team2-wk"></select></label>
@@ -91,9 +90,7 @@
                 <h2>Match Toss</h2>
                 <div class="toss-card">
                     <h3>Who won the toss?</h3>
-                    <div class="toggle-group" id="toss-winner-options">
-                        <!-- Buttons injected via JS -->
-                    </div>
+                    <div class="toggle-group" id="toss-winner-options"></div>
 
                     <h3>What did they choose?</h3>
                     <div class="toggle-group" id="toss-decision-options">
@@ -120,7 +117,41 @@
                         <span id="live-match-title">Loading...</span>
                         <span id="live-match-venue"></span>
                     </div>
-                    
+
+                    <!-- Top: Current Play (Striker/Non-Striker/Bowler/This Over/Target banner) -->
+                    <div class="current-play" id="current-play">
+                        <div class="current-batters">
+                            <div class="batter-card">
+                                <div class="label">Striker</div>
+                                <div id="striker-name-large" class="player-name">-</div>
+                                <div class="player-stats">R: <span id="striker-r">0</span> • B: <span id="striker-b">0</span> • SR: <span id="striker-sr">0.0</span></div>
+                            </div>
+                            <div class="batter-card">
+                                <div class="label">Non-Striker</div>
+                                <div id="nonstriker-name-large" class="player-name">-</div>
+                                <div class="player-stats">R: <span id="nonstriker-r">0</span> • B: <span id="nonstriker-b">0</span> • SR: <span id="nonstriker-sr">0.0</span></div>
+                            </div>
+                            <div class="bowler-card">
+                                <div class="label">Bowler</div>
+                                <div id="current-bowler-name" class="player-name">-</div>
+                                <div class="player-stats">O: <span id="current-bowler-overs">0</span> • B: <span id="current-bowler-balls">0</span> • W: <span id="current-bowler-wkts">0</span> • R: <span id="current-bowler-runs">0</span></div>
+                            </div>
+                        </div>
+
+                        <div class="this-over-and-target">
+                            <div class="this-over">
+                                <div class="label">This Over</div>
+                                <div id="this-over-balls" class="ball-row"></div>
+                            </div>
+
+                            <div id="target-banner" class="target-banner hidden">
+                                <div>Target: <span id="target-score">-</span></div>
+                                <div>Need: <span id="runs-required">-</span> runs from <span id="balls-remaining">-</span> balls</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Middle: Score summary -->
                     <div class="main-score-container">
                         <div class="teams-row">
                             <div class="team-box batting" id="batting-team-box">
@@ -145,24 +176,9 @@
                         <div class="crr-display">CRR: <span id="crr">0.00</span></div>
                     </div>
 
-                    <!-- Full Batting List -->
-                    <div class="batsmen-table" id="batsmen-table">
-                        <div class="table-row header">
-                            <span>Batter</span><span>R</span><span>B</span><span>4s</span><span>6s</span><span>SR / Status</span>
-                        </div>
-                        <div id="batsmen-list">
-                            <!-- JS will populate full batting list rows here -->
-                        </div>
-                    </div>
-
-                    <!-- Bowling List -->
-                    <div class="bowling-list" id="bowling-list">
-                        <!-- JS will populate bowlers and their stats -->
-                    </div>
-
-                    <div class="recent-overs-container">
-                        <small>This Over:</small>
-                        <div id="recent-balls" class="ball-row"></div>
+                    <!-- Bottom: Full detailed scorecards (both innings / historical) -->
+                    <div id="full-scorecards" class="full-scorecards">
+                        <!-- JS populates innings summary cards here -->
                     </div>
                 </div>
 
@@ -175,12 +191,12 @@
                         <button class="run-btn" onclick="recordScore(3)">3</button>
                         <button class="run-btn boundary-4" onclick="recordScore(4)">4</button>
                         <button class="run-btn boundary-6" onclick="recordScore(6)">6</button>
-                        
+
                         <button class="extra-btn" onclick="recordScore(0, 'WD')">WD</button>
                         <button class="extra-btn" onclick="recordScore(0, 'NB')">NB</button>
                         <button class="extra-btn" onclick="recordScore(0, 'B')">BYE</button>
                         <button class="extra-btn" onclick="recordScore(0, 'LB')">LB</button>
-                        
+
                         <button class="wicket-btn" onclick="openWicketModal()">OUT</button>
                         <button class="action-btn" onclick="undoLastBall()">UNDO</button>
                     </div>
@@ -241,7 +257,7 @@
         </div>
     </div>
 
-    <!-- Scripts remain same -->
+    <!-- Scripts -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
@@ -249,4 +265,4 @@
     <script src="cricket.js"></script>
     <script src="app.js"></script>
 </body>
-                                                                        </html>
+</html>
