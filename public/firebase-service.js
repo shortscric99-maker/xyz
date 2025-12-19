@@ -1,3 +1,4 @@
+// public/firebase-service.js
 // Initialize Firebase (Replace with your own config)
 const firebaseConfig = {
   apiKey: "AIzaSyArSAU4igEY7LKfx-G2kE8kEj9msssK9hs",
@@ -26,12 +27,13 @@ const DataService = {
     createMatch: async (matchData) => {
         const user = auth.currentUser;
         if (!user) return null;
-        
+
         const docRef = await db.collection('matches').add({
             ...matchData,
             creatorId: user.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             history: [],
+            innings: [],        // store completed innings summaries
             status: 'created'
         });
         return docRef.id;
@@ -47,5 +49,12 @@ const DataService = {
 
     updateMatch: (matchId, data) => {
         return db.collection('matches').doc(matchId).update(data);
+    },
+
+    // helper to push to innings array
+    pushInningsSummary: (matchId, inningsSummary) => {
+        return db.collection('matches').doc(matchId).update({
+            innings: firebase.firestore.FieldValue.arrayUnion(inningsSummary)
+        });
     }
 };
