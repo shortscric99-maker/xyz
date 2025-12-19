@@ -94,6 +94,7 @@ async function setupTossView(matchId){
     container.innerHTML = `<button class="toss-btn" onclick="selectTossWinner('teamA', this)">${data.teams.teamA.name}</button>
                            <button class="toss-btn" onclick="selectTossWinner('teamB', this)">${data.teams.teamB.name}</button>`;
     currentMatchDataLocal = data;
+    currentMatchData = data; // <---- ADD THIS LINE
 }
 
 window.selectTossWinner = (teamKey, btn) => {
