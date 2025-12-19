@@ -1,3 +1,4 @@
+// public/app.js
 // Global State
 let currentMatchId = null;
 let currentMatchData = null;
@@ -190,6 +191,21 @@ window.finalizeToss = async () => {
     const battingTeamKey = (tossDecision === 'bat') ? tossWinner : (tossWinner === 'teamA' ? 'teamB' : 'teamA');
     const bowlingTeamKey = (battingTeamKey === 'teamA') ? 'teamB' : 'teamA';
 
+    // Build playerStats mapping for both teams
+    const playerStats = {};
+    currentMatchData.teams.teamA.players.forEach(p => {
+        playerStats[p] = { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
+    });
+    currentMatchData.teams.teamB.players.forEach(p => {
+        if (!playerStats[p]) playerStats[p] = { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
+    });
+
+    // Prepare bowlers mapping for bowling team
+    const bowlers = {};
+    currentMatchData.teams[bowlingTeamKey].players.forEach(p => {
+        bowlers[p] = { runs: 0, wickets: 0, overs: 0, maidens: 0, ballsInCurrentOver: 0 };
+    });
+
     // Initialize the live score object
     const liveScoreInit = {
         battingTeam: battingTeamKey,
@@ -199,11 +215,13 @@ window.finalizeToss = async () => {
         nonStriker: nonStriker,
         bowler: bowler,
         recentBalls: [],
-        strikerStats: { runs: 0, balls: 0, fours: 0, sixes: 0 },
-        nonStrikerStats: { runs: 0, balls: 0, fours: 0, sixes: 0 },
-        bowlerStats: { runs: 0, wickets: 0, overs: 0, maidens: 0 },
+        playerStats: playerStats,
+        bowlers: bowlers,
+        bowlerStats: bowlers[bowler] || { runs: 0, wickets: 0, overs: 0, maidens: 0 },
         history: [],
-        lastSnapshot: null
+        lastSnapshot: null,
+        innings: 1,
+        target: null
     };
 
     await DataService.updateMatch(currentMatchId, {
@@ -254,28 +272,56 @@ function renderLiveScore(match) {
     document.getElementById('score-display').innerText = `${ls.runs || 0}/${ls.wickets || 0}`;
     document.getElementById('overs-display').innerText = `(${ls.overs || 0})`;
 
-    // Players
-    document.getElementById('striker-name').innerText = (ls.striker || 'Striker') + "*";
-    document.getElementById('s-runs').innerText = ls.strikerStats?.runs || 0;
-    document.getElementById('s-balls').innerText = ls.strikerStats?.balls || 0;
-    document.getElementById('s-4s').innerText = ls.strikerStats?.fours || 0;
-    document.getElementById('s-6s').innerText = ls.strikerStats?.sixes || 0;
+    // Full batting list rendering
+    const batsmenList = document.getElementById('batsmen-list');
+    batsmenList.innerHTML = '';
 
-    document.getElementById('ns-name').innerText = ls.nonStriker || 'Non-Striker';
-    document.getElementById('ns-runs').innerText = ls.nonStrikerStats?.runs || 0;
-    document.getElementById('ns-balls').innerText = ls.nonStrikerStats?.balls || 0;
+    const battingPlayers = (match.teams && match.teams[ls.battingTeam] && match.teams[ls.battingTeam].players) || [];
+    battingPlayers.forEach(p => {
+        const stats = ls.playerStats?.[p] || { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
+        const isStriker = ls.striker === p;
+        const isNonStriker = ls.nonStriker === p;
+        const status = stats.out ? `OUT (${stats.outInfo?.mode || 'out'})` : (isStriker ? '🔸 Striker' : (isNonStriker ? '⭘ Non-Striker' : 'Not Out / Yet to Bat'));
 
+        const sr = stats.balls > 0 ? ((stats.runs / stats.balls) * 100).toFixed(1) : '0.0';
+        const row = document.createElement('div');
+        row.className = `table-row player-row ${isStriker || isNonStriker ? 'active' : ''}`;
+        row.innerHTML = `<span class="p-name">${p}${isStriker ? ' *' : ''}${isNonStriker ? ' †' : ''}</span>
+                         <span>${stats.runs}</span>
+                         <span>${stats.balls}</span>
+                         <span>${stats.fours}</span>
+                         <span>${stats.sixes}</span>
+                         <span>${sr} / ${status}</span>`;
+        batsmenList.appendChild(row);
+    });
+
+    // Bowling list rendering
+    const bowlingListDiv = document.getElementById('bowling-list');
+    bowlingListDiv.innerHTML = '';
+    const bowlersObj = ls.bowlers || {};
+    Object.keys(bowlersObj).forEach(name => {
+        const b = bowlersObj[name];
+        const row = document.createElement('div');
+        row.className = 'table-row player-row';
+        // Show overs as e.g., 2.0 or 1.3 representation
+        row.style.gridTemplateColumns = '2fr 1fr 1fr 1fr 1fr 1.5fr';
+        const oversDisp = b.overs || 0;
+        row.innerHTML = `<span class="p-name">${name}${ls.bowler === name ? ' (current)' : ''}</span>
+                         <span>${oversDisp}</span>
+                         <span>${b.ballsInCurrentOver || 0}</span>
+                         <span>${b.wickets || 0}</span>
+                         <span>${b.maidens || 0}</span>
+                         <span>R: ${b.runs || 0}</span>`;
+        bowlingListDiv.appendChild(row);
+    });
+
+    // small bowler display (first current bowler)
     document.getElementById('bowler-name').innerText = ls.bowler || 'Bowler';
-    document.getElementById('b-runs').innerText = ls.bowlerStats?.runs || 0;
-    document.getElementById('b-wickets').innerText = ls.bowlerStats?.wickets || 0;
-    document.getElementById('b-overs').innerText = ls.bowlerStats?.overs || 0;
-
-    // small bowler display
-    document.getElementById('bowler-name').innerText = ls.bowler || 'Bowler';
-    document.getElementById('b-overs').innerText = ls.bowlerStats?.overs || 0;
-    document.getElementById('b-maidens').innerText = ls.bowlerStats?.maidens || 0;
-    document.getElementById('b-runs').innerText = ls.bowlerStats?.runs || 0;
-    document.getElementById('b-wickets').innerText = ls.bowlerStats?.wickets || 0;
+    const currB = ls.bowlers?.[ls.bowler] || {};
+    document.getElementById('b-overs').innerText = currB.overs || 0;
+    document.getElementById('b-maidens').innerText = currB.maidens || 0;
+    document.getElementById('b-runs').innerText = currB.runs || 0;
+    document.getElementById('b-wickets').innerText = currB.wickets || 0;
 
     // Recent Balls
     const recentDiv = document.getElementById('recent-balls');
@@ -312,14 +358,102 @@ window.recordScore = async (runs, type = 'legal') => {
         history: firebase.firestore.FieldValue.arrayUnion(result.logEntry)
     };
 
+    // Update match with this ball
     await DataService.updateMatch(currentMatchId, updateObj);
 
-    // If over completed, prompt to choose next bowler
+    // If over completed, prompt to choose next bowler (but also handle innings end)
     if (result.overCompleted) {
         // small delay to allow UI update from listener
         setTimeout(() => {
             openChangeBowlerModal(true);
         }, 200);
+    }
+
+    // If innings ended after this ball -> start next innings OR finish match
+    if (result.inningsEnded) {
+        // Fetch fresh match data
+        const doc = await db.collection('matches').doc(currentMatchId).get();
+        const fullMatch = { id: doc.id, ...doc.data() };
+        const prevLS = fullMatch.liveScore || {};
+
+        // If it was innings 1 -> initialize innings 2
+        if (prevLS.innings === 1) {
+            const prevRuns = prevLS.runs || 0;
+            const target = prevRuns + 1;
+
+            // Swap teams
+            const battingTeamKey = prevLS.bowlingTeam;
+            const bowlingTeamKey = prevLS.battingTeam;
+
+            // Build fresh playerStats & bowlers for new innings
+            const playerStats = {};
+            fullMatch.teams[battingTeamKey].players.forEach(p => {
+                playerStats[p] = { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
+            });
+            fullMatch.teams[bowlingTeamKey].players.forEach(p => {
+                if (!playerStats[p]) playerStats[p] = { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
+            });
+
+            const bowlers = {};
+            fullMatch.teams[bowlingTeamKey].players.forEach(p => {
+                bowlers[p] = { runs: 0, wickets: 0, overs: 0, maidens: 0, ballsInCurrentOver: 0 };
+            });
+
+            // default openers
+            const battingPlayers = fullMatch.teams[battingTeamKey].players || [];
+            const striker = battingPlayers[0] || 'Striker';
+            const nonStriker = battingPlayers[1] || (battingPlayers[0] || 'NonStriker');
+            const openingBowler = fullMatch.teams[bowlingTeamKey].players[0] || '';
+
+            const newLS = {
+                battingTeam: battingTeamKey,
+                bowlingTeam: bowlingTeamKey,
+                runs: 0,
+                wickets: 0,
+                overs: 0,
+                striker,
+                nonStriker,
+                bowler: openingBowler,
+                recentBalls: [],
+                playerStats,
+                bowlers,
+                bowlersStats: bowlers[openingBowler] || {},
+                history: [],
+                lastSnapshot: null,
+                innings: 2,
+                target: target
+            };
+
+            // update match: set liveScore to new innings, but also store previous innings snapshot inside match (helpful)
+            const inningChangeLog = { type: 'inningsEnd', previousRuns: prevRuns, time: (new Date()).toISOString(), note: `Innings 1 ended. Target ${target}` };
+
+            await DataService.updateMatch(currentMatchId, {
+                liveScore: newLS,
+                status: 'live',
+                history: firebase.firestore.FieldValue.arrayUnion(inningChangeLog)
+            });
+
+            alert(`End of innings. Target for next team: ${target}. Now starting innings 2.`);
+        } else {
+            // If innings 2 ended -> match complete
+            // Determine winner (basic)
+            const finalRuns = prevLS.runs || 0;
+            let winner = null;
+            if (prevLS.target) {
+                // In second innings, target was set at start
+                if (finalRuns >= prevLS.target) {
+                    winner = fullMatch.teams[prevLS.battingTeam].name;
+                } else {
+                    winner = fullMatch.teams[prevLS.bowlingTeam].name;
+                }
+            }
+            const completeLog = { type: 'matchComplete', winner: winner || 'N/A', time: (new Date()).toISOString() };
+            await DataService.updateMatch(currentMatchId, {
+                status: 'completed',
+                history: firebase.firestore.FieldValue.arrayUnion(completeLog)
+            });
+            alert(`Match completed. Winner: ${winner || 'N/A'}`);
+        }
     }
 };
 
@@ -333,12 +467,10 @@ window.openWicketModal = () => {
     const battingTeam = currentMatchData.teams[battingTeamKey];
     const allPlayers = battingTeam.players || [];
 
-    // Determine players still to bat: exclude striker, nonStriker and those already appeared?
-    // We'll derive from history: simplest approach - taken players are those that have had stats >0 or are in striker/nonStriker or previously used.
+    // Determine players still to bat
     const used = new Set();
     if (ls.striker) used.add(ls.striker);
     if (ls.nonStriker) used.add(ls.nonStriker);
-    // Also collect from history any named replacements (simple heuristic)
     (currentMatchData.history || []).forEach(h => {
         if (h.meta && h.meta.replacement) used.add(h.meta.replacement);
     });
@@ -365,7 +497,7 @@ window.openWicketModal = () => {
     document.getElementById('dismissal-mode').value = 'bowled';
     document.getElementById('fielder-selection').classList.add('hidden');
 
-    // Show modal
+     // Show modal
     document.getElementById('wicket-modal').classList.remove('hidden');
 };
 
@@ -375,7 +507,6 @@ window.closeWicketModal = () => {
 
 document.getElementById('dismissal-mode').addEventListener('change', (e) => {
     const val = e.target.value;
-    // Only 'catch' needs fielder select. For 'stumping' and 'runout' we set fielder to wicketkeeper automatically when recording.
     if (val === 'catch') document.getElementById('fielder-selection').classList.remove('hidden');
     else document.getElementById('fielder-selection').classList.add('hidden');
 });
@@ -415,11 +546,15 @@ window.confirmWicket = async () => {
     // "after wicket new player will be striker except if over had completed."
     if (!result.overCompleted) {
         result.liveScore.striker = newBatter || ("Substitute");
-        result.liveScore.strikerStats = { runs: 0, balls: 0, fours: 0, sixes: 0 };
+        if (!result.liveScore.playerStats[result.liveScore.striker]) {
+            result.liveScore.playerStats[result.liveScore.striker] = { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
+        }
     } else {
-        // Over completed: keep the swap that happened in engine. New batter will be inserted as non-striker so that behavior matches "except if over completed"
+        // Over completed: keep the swap that happened in engine. New batter will be inserted as non-striker
         result.liveScore.nonStriker = newBatter || ("Substitute");
-        result.liveScore.nonStrikerStats = { runs: 0, balls: 0, fours: 0, sixes: 0 };
+        if (!result.liveScore.playerStats[result.liveScore.nonStriker]) {
+            result.liveScore.playerStats[result.liveScore.nonStriker] = { runs: 0, balls: 0, fours: 0, sixes: 0, out: false, outInfo: null };
+        }
     }
 
     // Update match with lastSnapshot for undo and push logEntry
@@ -434,6 +569,14 @@ window.confirmWicket = async () => {
     // If over completed, prompt for new bowler
     if (result.overCompleted) {
         setTimeout(() => openChangeBowlerModal(true), 200);
+    }
+
+    // If innings ended because of this wicket
+    if (result.inningsEnded) {
+        // Trigger innings-handling via recordScore flow: fetch and update in DB
+        setTimeout(() => {
+            // no-op: recordScore will handle innings end once DB updates are received in listener.
+        }, 200);
     }
 };
 
@@ -475,10 +618,11 @@ window.confirmChangeBowler = async () => {
     // Keep snapshot for undo (so bowler change can be reverted with undo of last ball)
     const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
 
-    // Update liveScore: set new bowler and reset bowlerStats (or keep previous values if you prefer)
+    // Update liveScore: set new bowler and ensure bowler exists in mapping
     const ls = JSON.parse(JSON.stringify(currentMatchData.liveScore));
     ls.bowler = selected;
-    ls.bowlerStats = ls.bowlerStats || { runs: 0, wickets: 0, overs: 0, maidens: 0 };
+    ls.bowlers = ls.bowlers || {};
+    if (!ls.bowlers[selected]) ls.bowlers[selected] = { runs: 0, wickets: 0, overs: 0, maidens: 0, ballsInCurrentOver: 0 };
 
     // Push a log entry to history to indicate bowler change (helpful for undo)
     const logEntry = {
