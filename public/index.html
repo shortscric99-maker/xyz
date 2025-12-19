@@ -1,3 +1,4 @@
+<!-- public/index.html -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -144,27 +145,21 @@
                         <div class="crr-display">CRR: <span id="crr">0.00</span></div>
                     </div>
 
-                    <div class="batsmen-table">
+                    <!-- Full Batting List -->
+                    <div class="batsmen-table" id="batsmen-table">
                         <div class="table-row header">
-                            <span>Batter</span><span>R</span><span>B</span><span>4s</span><span>6s</span><span>SR</span>
+                            <span>Batter</span><span>R</span><span>B</span><span>4s</span><span>6s</span><span>SR / Status</span>
                         </div>
-                        <div class="table-row active" id="striker-row">
-                            <span class="p-name" id="striker-name">Striker</span>
-                            <span id="s-runs">0</span><span id="s-balls">0</span>
-                            <span id="s-4s">0</span><span id="s-6s">0</span><span id="s-sr">0.0</span>
-                        </div>
-                        <div class="table-row" id="non-striker-row">
-                            <span class="p-name" id="ns-name">Non-Striker</span>
-                            <span id="ns-runs">0</span><span id="ns-balls">0</span>
-                            <span id="ns-4s">0</span><span id="ns-6s">0</span><span id="ns-sr">0.0</span>
+                        <div id="batsmen-list">
+                            <!-- JS will populate full batting list rows here -->
                         </div>
                     </div>
 
-                    <div class="bowler-strip" id="bowler-row">
-                        <span class="p-name" id="bowler-name-vertical">Bowler</span>
-                        <span class="b-stats"><span id="b-overs-vert">0.0</span>- <span id="b-maidens-vert">0</span>- <span id="b-runs-vert">0</span>- <span id="b-wickets-vert">0</span></span>
+                    <!-- Bowling List -->
+                    <div class="bowling-list" id="bowling-list">
+                        <!-- JS will populate bowlers and their stats -->
                     </div>
-                    
+
                     <div class="recent-overs-container">
                         <small>This Over:</small>
                         <div id="recent-balls" class="ball-row"></div>
@@ -254,4 +249,4 @@
     <script src="cricket.js"></script>
     <script src="app.js"></script>
 </body>
-    </html>
+                                                                        </html>
