@@ -13,9 +13,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!user) AuthService.signInAnonymously();
         handleRoute();
     });
-
-    // Setup tab navigation on live match page
-    setupScoreTabNavigation();
 });
 window.addEventListener('hashchange', handleRoute);
 
@@ -97,7 +94,6 @@ async function setupTossView(matchId){
     container.innerHTML = `<button class="toss-btn" onclick="selectTossWinner('teamA', this)">${data.teams.teamA.name}</button>
                            <button class="toss-btn" onclick="selectTossWinner('teamB', this)">${data.teams.teamB.name}</button>`;
     currentMatchDataLocal = data;
-    currentMatchData = data; // <---- ADD THIS LINE
 }
 
 window.selectTossWinner = (teamKey, btn) => {
@@ -106,20 +102,19 @@ window.selectTossWinner = (teamKey, btn) => {
 window.selectTossDecision = (decision, btn) => {
     tossDecision = decision; document.querySelectorAll('#toss-decision-options .toss-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); checkTossReady();
 };
-function checkTossReady(){ if (tossWinner && tossDecision) { document.getElementById('opener-selection').classList.remove('hidden'); populateOpenerDropdowns(); document.getElementById('confirm-toss-bt[...] }
-function populateOpenerDropdowns() {
-    if (!currentMatchDataLocal) return;
+function checkTossReady(){ if (tossWinner && tossDecision) { document.getElementById('opener-selection').classList.remove('hidden'); populateOpenerDropdowns(); document.getElementById('confirm-toss-btn').disabled = false; } }
+function populateOpenerDropdowns(){
     const battingTeamKey = (tossDecision === 'bat') ? tossWinner : (tossWinner === 'teamA' ? 'teamB' : 'teamA');
     const bowlingTeamKey = (battingTeamKey === 'teamA') ? 'teamB' : 'teamA';
-    const battingPlayers = currentMatchDataLocal.teams[battingTeamKey].players;
-    const bowlingPlayers = currentMatchDataLocal.teams[bowlingTeamKey].players;
+    const battingPlayers = currentMatchData.teams[battingTeamKey].players;
+    const bowlingPlayers = currentMatchData.teams[bowlingTeamKey].players;
     const sSelect = document.getElementById('select-striker');
     const nsSelect = document.getElementById('select-non-striker');
     const bSelect = document.getElementById('select-bowler');
     sSelect.innerHTML = ''; nsSelect.innerHTML = ''; bSelect.innerHTML = '';
-    battingPlayers.forEach(p => { sSelect.add(new Option(p, p)); nsSelect.add(new Option(p, p)); });
-    if (nsSelect.options.length > 1) nsSelect.selectedIndex = 1;
-    bowlingPlayers.forEach(p => bSelect.add(new Option(p, p)));
+    battingPlayers.forEach(p => { sSelect.add(new Option(p,p)); nsSelect.add(new Option(p,p)); });
+    if(nsSelect.options.length>1) nsSelect.selectedIndex = 1;
+    bowlingPlayers.forEach(p => bSelect.add(new Option(p,p)));
 }
 
 window.finalizeToss = async () => {
@@ -158,27 +153,9 @@ window.finalizeToss = async () => {
     window.location.hash = `match/${currentMatchId}`;
 };
 
-// --- NAV TAB LOGIC FOR Score PAGE ---
-function setupScoreTabNavigation() {
-    window.showScoreTab = (tab) => {
-        document.querySelectorAll('.score-tab').forEach(btn => btn.classList.remove('active'));
-        document.querySelectorAll('.score-tab-panel').forEach(p => p.classList.remove('active'));
-
-        if (tab === 'live') {
-            document.getElementById('tab-live').classList.add('active');
-            document.getElementById('tab-panel-live').classList.add('active');
-        } else if (tab === 'scorecard') {
-            document.getElementById('tab-scorecard').classList.add('active');
-            document.getElementById('tab-panel-scorecard').classList.add('active');
-        }
-    };
-}
-
 // Live scoring
 function initMatchView(matchId){
     document.getElementById('view-match').classList.remove('hidden');
-    // Always show 'Live' first when entering match view
-    showScoreTab('live');
     if (unsubscribeMatch) unsubscribeMatch();
     unsubscribeMatch = DataService.subscribeToMatch(matchId, (match) => {
         currentMatchData = match;
@@ -264,159 +241,30 @@ function renderLiveScore(match){
     document.getElementById('b-wickets').innerText = cb.wickets || 0;
 }
 
-// ...[keep all previous code as is, then replace renderFullScorecards and its helpers with the following]...
-
 function renderFullScorecards(match) {
     const container = document.getElementById('full-scorecards');
-    if (!container) return; // If element not present (shouldn't happen)
     container.innerHTML = '';
 
-    // Show previous innings summaries (if any)
+    // Show previous innings summaries if any
     (match.innings || []).forEach((inn, idx) => {
-        container.appendChild(createProfessionalInningsTable(inn, idx + 1));
+        const card = document.createElement('div');
+        card.className = 'innings-card';
+        card.innerHTML = `<h4>Innings ${idx+1} - ${inn.battingTeamName} (Score: ${inn.runs}/${inn.wickets} in ${inn.overs})</h4>
+                          <div><strong>Batting:</strong> ${renderPlayersInline(inn.playerStats, inn.battingPlayers)}</div>
+                          <div style="margin-top:8px;"><strong>Bowling:</strong> ${renderBowlersInline(inn.bowlers)}</div>`;
+        container.appendChild(card);
     });
 
-    // Show current live innings (even if completed)
+    // Current live innings (even if completed)
     const ls = match.liveScore || {};
-    const liveInningsObj = {
-        innings: ls.innings || (match.innings?.length || 0) + 1,
-        battingTeamKey: ls.battingTeam,
-        battingTeamName: match.teams?.[ls.battingTeam]?.name || '-',
-        runs: ls.runs || 0,
-        wickets: ls.wickets || 0,
-        overs: ls.overs || 0,
-        battingPlayers: match.teams?.[ls.battingTeam]?.players || [],
-        playerStats: ls.playerStats || {},
-        bowlers: ls.bowlers || {}
-    };
-    container.appendChild(createProfessionalInningsTable(liveInningsObj, liveInningsObj.innings, true));
+    const currentCard = document.createElement('div');
+    currentCard.className = 'innings-card';
+    const battingTeamName = match.teams[ls.battingTeam]?.name || '-';
+    currentCard.innerHTML = `<h4>Current Innings ${ls.innings || 1} - ${battingTeamName} (Score: ${ls.runs || 0}/${ls.wickets || 0} in ${ls.overs || 0})</h4>
+                             <div><strong>Batting:</strong> ${renderPlayersInline(ls.playerStats || {}, match.teams[ls.battingTeam]?.players || [])}</div>
+                             <div style="margin-top:8px;"><strong>Bowling:</strong> ${renderBowlersInline(ls.bowlers || {})}</div>`;
+    container.appendChild(currentCard);
 }
-
-function createProfessionalInningsTable(inn, inningsNum, live = false) {
-    const wrap = document.createElement('div');
-    wrap.className = 'innings-card pro-innings';
-    const heading = document.createElement('h4');
-    heading.innerText = `${live ? 'Current ' : ''}Innings ${inningsNum} - ${inn.battingTeamName || '-'} (Score: ${inn.runs}/${inn.wickets} in ${inn.overs})`;
-    wrap.appendChild(heading);
-
-    // Batting table
-    const batTable = document.createElement('table');
-    batTable.className = 'proscore-table bat-table';
-    const batThead = document.createElement('thead');
-    batThead.innerHTML = `
-        <tr>
-            <th>Batsman</th>
-            <th>Dismissal</th>
-            <th>R</th>
-            <th>B</th>
-            <th>4s</th>
-            <th>6s</th>
-            <th>SR</th>
-        </tr>`;
-    batTable.appendChild(batThead);
-    const batTbody = document.createElement('tbody');
-
-    (inn.battingPlayers || []).forEach(player => {
-        const stats = inn.playerStats?.[player] || {runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null};
-        const tr = document.createElement('tr');
-        // Dismissal status/caption
-        let dism = stats.out
-            ? getProfessionalDismissal(stats.outInfo, player)
-            : stats.balls > 0
-                ? 'not out'
-                : 'did not bat';
-
-        tr.innerHTML = `
-            <td class="name">${player}</td>
-            <td class="dismissal">${dism}</td>
-            <td>${stats.runs || 0}</td>
-            <td>${stats.balls || 0}</td>
-            <td>${stats.fours || 0}</td>
-            <td>${stats.sixes || 0}</td>
-            <td>${stats.balls > 0 ? ((stats.runs / stats.balls)*100).toFixed(1) : '0.0'}</td>
-        `;
-        batTbody.appendChild(tr);
-    });
-    batTable.appendChild(batTbody);
-
-    // Batting extras/total row
-    const extras = getExtrasSummary(inn.playerStats);
-    const extrasRow = document.createElement('tr');
-    extrasRow.innerHTML =
-        `<td colspan="2" class="extras-label">Extras</td>
-         <td colspan="5" class="extras-val">${extras.text}</td>`;
-    batTbody.appendChild(extrasRow);
-
-    // Totals row
-    const totalRow = document.createElement('tr');
-    totalRow.className = 'total-row';
-    totalRow.innerHTML =
-        `<td colspan="2">TOTAL</td>
-         <td colspan="5" class="total-val">${inn.runs || 0} / ${inn.wickets || 0} in ${inn.overs} overs</td>`;
-    batTbody.appendChild(totalRow);
-
-    wrap.appendChild(batTable);
-
-    // Bowling table
-    const bowlTable = document.createElement('table');
-    bowlTable.className = 'proscore-table bowl-table';
-    const bowlThead = document.createElement('thead');
-    bowlThead.innerHTML = `
-        <tr>
-            <th>Bowler</th>
-            <th>O</th>
-            <th>M</th>
-            <th>R</th>
-            <th>W</th>
-        </tr>
-    `;
-    bowlTable.appendChild(bowlThead);
-    const bowlTbody = document.createElement('tbody');
-    Object.entries(inn.bowlers || {}).forEach(([bowler, bstat]) => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `
-            <td class="name">${bowler}</td>
-            <td>${bstat.overs || 0}</td>
-            <td>${bstat.maidens || 0}</td>
-            <td>${bstat.runs || 0}</td>
-            <td>${bstat.wickets || 0}</td>
-        `;
-        bowlTbody.appendChild(tr);
-    });
-    bowlTable.appendChild(bowlTbody);
-    wrap.appendChild(bowlTable);
-
-    return wrap;
-}
-
-// Helper for professional dismissal info
-function getProfessionalDismissal(outInfo, batsman) {
-    if (!outInfo || !outInfo.mode) return 'OUT';
-    switch (outInfo.mode) {
-        case 'bowled':
-            return 'bowled ' + (outInfo.fielder || '');
-        case 'catch':
-            return 'c ' + (outInfo.fielder || '') + ' b ' + (outInfo.bowler || '');
-        case 'lbw':
-            return 'lbw b ' + (outInfo.fielder || '');
-        case 'runout':
-            return 'run out ' + (outInfo.fielder || '');
-        case 'stumping':
-            return 'stumped ' + (outInfo.fielder || '');
-        default:
-            return outInfo.mode;
-    }
-}
-
-// (Optional) Helper: summarise extras (simplified for this base logic)
-// Here we just sum total balls - runs for legal runs for illustrative purposes.
-function getExtrasSummary(playerStats) {
-    // For a real scorecard, this should count leg byes, byes, WDs, NBs across the innings!
-    // Currently, we'll just return 0 extras with text, actual logic to enhance as needed.
-    return { text: '0 (no breakdown available)' };
-}
-
-// ...[rest of file as is remains the same]...
 
 function renderPlayersInline(playerStatsObj, battingPlayers) {
     // show each player with runs (R/B) and status
@@ -434,10 +282,6 @@ function renderBowlersInline(bowlersObj) {
         return `${name} ${b.overs || 0}ov ${b.wickets || 0}wkts R:${b.runs || 0}`;
     }).join(' • ');
 }
-
-// [SCORING ACTIONS AND REST REMAIN UNCHANGED—No code change below this line for the tabs rework.]
-
-// [All code below stays the same as before, including recordScore, wickets, modals, etc.]
 
 // Scoring Actions
 window.recordScore = async (runs, type = 'legal') => {
@@ -553,7 +397,7 @@ window.recordScore = async (runs, type = 'legal') => {
                     winner = fullMatch.teams[finalLS.bowlingTeam]?.name || null;
                 }
             } else {
-               // if no target (e.g., single innings), winner determination can be based on runs or mark as complete
+                // if no target (e.g., single innings), winner determination can be based on runs or mark as complete
                 winner = null;
             }
             const completeLog = { type: 'matchComplete', winner: winner || 'N/A', time: (new Date()).toISOString() };
@@ -724,4 +568,4 @@ window.shareMatch = () => {
     } else if (navigator.clipboard) {
         navigator.clipboard.writeText(url).then(()=>{ alert("Match link copied to clipboard."); }).catch(()=>{ prompt("Copy this link:", url); });
     } else { prompt("Copy this link:", url); }
-};   
+};
