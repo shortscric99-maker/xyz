@@ -48,8 +48,18 @@ function handleRoute(){
         setupTossView(currentMatchId);
     } else if (hash.startsWith('match/')) {
         currentMatchId = hash.split('/')[1];
-        initMatchView(currentMatchId);
+        initMatchView(currentMatchId, false);
+    } else if (hash.startsWith('watch/')) {
+        // viewer-only route (shared link)
+        currentMatchId = hash.split('/')[1];
+        initMatchView(currentMatchId, true);
     }
+}
+
+// ---------------- small helpers ----------------
+function currentUserIsCreator() {
+    const user = AuthService.getCurrentUser();
+    return user && currentMatchData && (user.uid === currentMatchData.creatorId);
 }
 
 // ---------------- UI helpers (to replace alert()) ----------------
@@ -200,16 +210,16 @@ window.finalizeToss = async () => {
 };
 
 // ---------------- Live scoring ----------------
-function initMatchView(matchId){
+function initMatchView(matchId, viewOnly = false){
     document.getElementById('view-match').classList.remove('hidden');
     if (unsubscribeMatch) unsubscribeMatch();
     unsubscribeMatch = DataService.subscribeToMatch(matchId, (match) => {
         currentMatchData = match;
-        if (match.status === 'created') { window.location.hash = `toss/${matchId}`; return; }
+        if (match.status === 'created' && !viewOnly) { window.location.hash = `toss/${matchId}`; return; }
         renderLiveScore(match);
         renderFullScorecards(match);
         const user = AuthService.getCurrentUser();
-        if (user && user.uid === match.creatorId && match.status !== 'completed') {
+        if (!viewOnly && user && user.uid === match.creatorId && match.status !== 'completed') {
             document.getElementById('scorer-controls').classList.remove('hidden');
         } else {
             document.getElementById('scorer-controls').classList.add('hidden');
