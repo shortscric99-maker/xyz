@@ -145,8 +145,8 @@
                             </div>
 
                             <div id="target-banner" class="target-banner hidden">
-                                <div>Target: <span id="target-score">-</span></div>
-                                <div>Need: <span id="runs-required">-</span> runs from <span id="balls-remaining">-</span> balls</div>
+                                <div id="target-banner-line1">Target: <span id="target-score">-</span></div>
+                                <div id="target-banner-line2">Need: <span id="runs-required">-</span> runs from <span id="balls-remaining">-</span> balls</div>
                             </div>
                         </div>
                     </div>
@@ -281,6 +281,21 @@
         </div>
     </div>
 
+    <!-- Extra Delivery Modal -->
+    <div id="extra-modal" class="modal hidden">
+        <div class="modal-card">
+            <h3 id="extra-modal-title">Extra Delivery</h3>
+            <div class="sub-text" id="extra-modal-note" style="margin-bottom:8px;"></div>
+            <label>Runs to credit to striker:
+                <input id="extra-run-input" type="number" min="0" value="0" />
+            </label>
+            <div class="modal-actions">
+                <button class="secondary-btn" onclick="cancelExtraModal()">Cancel</button>
+                <button class="primary-btn" onclick="confirmExtraModal()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Toast container -->
     <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
@@ -292,4 +307,4 @@
     <script src="cricket.js"></script>
     <script src="app.js"></script>
 </body>
-</html>
+    </html>
