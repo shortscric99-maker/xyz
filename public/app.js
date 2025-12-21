@@ -488,6 +488,13 @@ function getExtrasSummary(playerStats) {
 async function processEvent(event) {
     if (!currentMatchData || !currentMatchId) { showToast("No active match loaded.", 'error'); return; }
 
+    // Permissions: only the original creator may score (shared "watch" links are view-only)
+    const user = AuthService.getCurrentUser();
+    if (!user || user.uid !== currentMatchData.creatorId) {
+        showToast("You don't have permission to score this match.", 'error');
+        return;
+    }
+
     // prevent scoring if match completed
     if (currentMatchData.status === 'completed' || (currentMatchData.liveScore && currentMatchData.liveScore.matchCompleted)) {
         return showToast("Match already completed. Scoring disabled.", 'info');
@@ -518,7 +525,7 @@ async function processEvent(event) {
         setTimeout(() => openChangeBowlerModal(true), 200);
     }
 
-    // Handle innings end / match complete
+    // Handle innings end / match complete (same flow as before)
     if (result.inningsEnded) {
         // fetch freshest match doc
         const doc = await db.collection('matches').doc(currentMatchId).get();
@@ -560,7 +567,7 @@ async function processEvent(event) {
 
             // open modal and populate selects
             openStartInningsModal(startInningsPendingPayload);
-            showToast(`Innings 1 ended. Target for next team: ${target}. Choose openers.`, 'info');
+            showToast(`Innings ended. Target for next team: ${target}. Choose openers.`, 'info');
         } else {
             // innings 2 ended or match completed
             const finalLS = prevLS;
@@ -571,7 +578,6 @@ async function processEvent(event) {
                 const battingPlayersList = (fullMatch.teams && fullMatch.teams[finalLS.battingTeam] && fullMatch.teams[finalLS.battingTeam].players) || [];
                 const playersCount = battingPlayersList.length || 11;
                 if (finalLS.runs >= finalLS.target) {
-                    // chasing team achieved target => batting team won
                     winner = fullMatch.teams[finalLS.battingTeam]?.name || null;
                     const wicketsRemaining = Math.max(0, playersCount - (finalLS.wickets || 0));
                     completeNote = `${winner} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
@@ -592,7 +598,7 @@ async function processEvent(event) {
             showToast(completeNote, 'success');
         }
     }
-};
+}
 
 // Public entrypoint for scoring buttons. For extras, open extra modal first.
 window.recordScore = async (runs, type = 'legal') => {
@@ -687,6 +693,13 @@ window.openWicketModal = () => {
 window.closeWicketModal = () => document.getElementById('wicket-modal').classList.add('hidden');
 
 window.confirmWicket = async () => {
+    // Permission guard: only creator can confirm wicket
+    const user = AuthService.getCurrentUser();
+    if (!user || !currentMatchData || user.uid !== currentMatchData.creatorId) {
+        showToast("You don't have permission to score this match.", 'error');
+        return;
+    }
+
     const mode = document.getElementById('dismissal-mode').value;
     const fielder = document.getElementById('dismissal-fielder').value;
     const nbSelect = document.getElementById('new-batter-select');
@@ -701,42 +714,36 @@ window.confirmWicket = async () => {
     if (mode === 'stumping' || mode === 'runout') dismissal.fielder = wicketkeeper || null;
     if (mode === 'bowled' || mode === 'lbw') dismissal.fielder = ls.bowler || null;
 
-    const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
+    // Use central processor so innings-end logic is handled consistently
+    await processEvent({ runs: 0, type: 'W', dismissal });
 
-    // Process wicket event
-    const result = CricketEngine.processBall(currentMatchData, { runs: 0, type: 'W', dismissal });
-
-    result.logEntry.meta = result.logEntry.meta || {};
-    result.logEntry.meta.dismissal = dismissal;
+    // After engine processed and updated DB, if there is a replacement (and innings not ended),
+    // update the liveScore to set the replacement on crease.
     if (newBatter) {
-        result.logEntry.meta.replacement = newBatter;
-    }
-    result.logEntry.meta.bowler = ls.bowler;
-    result.logEntry.meta.strikerBefore = ls.striker;
-
-    // If a newBatter present, set them as striker/non-striker depending on overCompleted
-    if (newBatter) {
-        if (!result.overCompleted) {
-            result.liveScore.striker = newBatter;
-            if (!result.liveScore.playerStats[result.liveScore.striker]) result.liveScore.playerStats[result.liveScore.striker] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
+        // fetch freshest doc and update striker/non-striker depending on over state
+        const doc = await db.collection('matches').doc(currentMatchId).get();
+        const fresh = { id: doc.id, ...doc.data() };
+        const freshLS = fresh.liveScore || {};
+        // If innings already ended, we won't set replacement
+        if (!freshLS || freshLS.inningsEnded) {
+            // do nothing
         } else {
-            result.liveScore.nonStriker = newBatter;
-            if (!result.liveScore.playerStats[result.liveScore.nonStriker]) result.liveScore.playerStats[result.liveScore.nonStriker] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
+            // place replacement: prefer striker if not overCompleted; we can't know overCompleted from this context easily,
+            // so safest: if the striker is marked out in playerStats, replace striker, otherwise replace nonStriker.
+            const outStriker = Object.entries(freshLS.playerStats || {}).find(([p,st]) => st && st.out && p === freshLS.striker);
+            // simply assign newBatter to striker if striker is out, else to nonStriker
+            if (freshLS.striker && freshLS.playerStats && freshLS.playerStats[freshLS.striker] && freshLS.playerStats[freshLS.striker].out) {
+                freshLS.striker = newBatter;
+                if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
+            } else {
+                freshLS.nonStriker = newBatter;
+                if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
+            }
+            await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
         }
     }
 
-    await DataService.updateMatch(currentMatchId, {
-        liveScore: result.liveScore,
-        lastSnapshot: lastSnapshot,
-        history: firebase.firestore.FieldValue.arrayUnion(result.logEntry)
-    });
-
     closeWicketModal();
-
-    if (result.overCompleted && !result.inningsEnded) setTimeout(() => openChangeBowlerModal(true), 200);
-    if (result.inningsEnded) {
-        showToast('Innings ended.', 'info');
-    }
 };
 
 // ---------------- Bowler change ----------------
@@ -758,6 +765,13 @@ window.openChangeBowlerModal = (fromOverEnd = false) => {
 window.closeChangeBowlerModal = () => { document.getElementById('bowler-modal').classList.add('hidden'); document.getElementById('bowler-modal').dataset.auto = '0'; };
 
 window.confirmChangeBowler = async () => {
+    // Permission guard
+    const user = AuthService.getCurrentUser();
+    if (!user || !currentMatchData || user.uid !== currentMatchData.creatorId) {
+        showToast("You don't have permission to score this match.", 'error');
+        return;
+    }
+
     const selected = document.getElementById('new-bowler-select').value;
     if (!selected) { showToast("Please select a bowler.", 'error'); return; }
     const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
@@ -799,18 +813,18 @@ window.undoLastBall = async () => {
     }
 };
 
-// ---------------- Share ----------------
+// ---------------- Share (viewer-only) ----------------
 window.shareMatch = () => {
     if (!currentMatchId) { showToast("No match to share.", 'error'); return; }
-    const url = window.location.origin + window.location.pathname + `#match/${currentMatchId}`;
+    // viewer-only link (watch) — this link is intended only for viewing; scoring controls will be hidden
+    const url = window.location.origin + window.location.pathname + `#watch/${currentMatchId}`;
     if (navigator.share) {
-        navigator.share({ title: document.getElementById('live-match-title').innerText || 'Match', text: 'Live score link', url })
-            .catch(err => { navigator.clipboard?.writeText(url).then(()=>showToast("Match link copied to clipboard.", 'success')); });
+        navigator.share({ title: document.getElementById('live-match-title').innerText || 'Match', text: 'Live score (viewer link)', url })
+            .catch(err => { navigator.clipboard?.writeText(url).then(()=>showToast("Viewer link copied to clipboard.", 'success')); });
     } else if (navigator.clipboard) {
-        navigator.clipboard.writeText(url).then(()=>{ showToast("Match link copied to clipboard.", 'success'); }).catch(()=>{ prompt("Copy this link:", url); });
-    } else { prompt("Copy this link:", url); }
+        navigator.clipboard.writeText(url).then(()=>{ showToast("Viewer link copied to clipboard.", 'success'); }).catch(()=>{ prompt("Copy this viewer link:", url); });
+    } else { prompt("Copy this viewer link:", url); }
 };
-
 // ---------------- START INNINGS modal flow ----------------
 function openStartInningsModal(payload) {
     // payload: { fullMatch, battingTeamKey, bowlingTeamKey, target, prevRuns }
