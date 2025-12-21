@@ -74,26 +74,30 @@ const CricketEngine = {
         if (type === 'WD' || type === 'NB') totalRuns += 1;
         ls.runs = (ls.runs || 0) + totalRuns;
 
-        // Batter stats
-        if (type !== 'WD') {
+        // Batter stats: only increment balls faced for deliveries considered legal (as requested: only 'legal' and 'LB' count as legal deliveries)
+        const isLegalDelivery = (type === 'legal' || type === 'LB');
+
+        if (isLegalDelivery) {
             if (ls.striker) {
                 ls.playerStats[ls.striker].balls = (ls.playerStats[ls.striker].balls || 0) + 1;
             }
         }
-        if (type === 'legal' || type === 'NB') {
-            if (ls.striker) {
-                ls.playerStats[ls.striker].runs = (ls.playerStats[ls.striker].runs || 0) + runs;
-                if (runs === 4) ls.playerStats[ls.striker].fours = (ls.playerStats[ls.striker].fours || 0) + 1;
-                if (runs === 6) ls.playerStats[ls.striker].sixes = (ls.playerStats[ls.striker].sixes || 0) + 1;
-            }
+
+        // Add runs to striker for any delivery types where runs were entered (per your requirement to credit striker with extra runs entered)
+        if (ls.striker && (type === 'legal' || type === 'NB' || type === 'WD' || type === 'B' || type === 'LB')) {
+            ls.playerStats[ls.striker].runs = (ls.playerStats[ls.striker].runs || 0) + runs;
+            if (runs === 4) ls.playerStats[ls.striker].fours = (ls.playerStats[ls.striker].fours || 0) + 1;
+            if (runs === 6) ls.playerStats[ls.striker].sixes = (ls.playerStats[ls.striker].sixes || 0) + 1;
         }
 
         // Bowler stats
         if (bowlerStats) {
+            // Bowler is not charged for byes or leg-byes in standard scoring
             if (type !== 'B' && type !== 'LB') {
                 bowlerStats.runs = (bowlerStats.runs || 0) + totalRuns;
             }
-            if (type !== 'WD') {
+            // increment bowler's balls only for legal deliveries (legal + LB as per request)
+            if (isLegalDelivery) {
                 bowlerStats.ballsInCurrentOver = (bowlerStats.ballsInCurrentOver || 0) + 1;
                 if (bowlerStats.ballsInCurrentOver === 6) {
                     bowlerStats.overs = Math.floor((bowlerStats.overs || 0)) + 1;
@@ -109,15 +113,15 @@ const CricketEngine = {
         }
 
         let overCompleted = false;
-        // Advance balls at match level
-        if (type !== 'WD') {
+        // Advance balls at match level only for legal deliveries (legal + LB)
+        if (isLegalDelivery) {
             ballsInOver++;
             if (ballsInOver === 6) {
                 oversWhole = oversWhole + 1;
                 ballsInOver = 0;
                 overCompleted = true;
                 ls.overs = oversWhole;
-                // swap strike
+                // swap strike at over end
                 const tmp = ls.striker;
                 ls.striker = ls.nonStriker;
                 ls.nonStriker = tmp;
@@ -137,11 +141,11 @@ const CricketEngine = {
                 ls.playerStats[outPlayer].out = true;
                 ls.playerStats[outPlayer].outInfo = event.dismissal || { mode: 'unknown' };
             }
-            // Keep striker until caller replaces
+            // Keep striker until caller replaces (or innings end)
         }
 
-        // Rotate strike for odd runs
-        if ((type === 'legal' || type === 'NB') && (runs % 2 !== 0)) {
+        // Rotate strike for odd runs when runs were credited to batsman (per your flow we credit striker with runs entered)
+        if ((type === 'legal' || type === 'NB' || type === 'WD' || type === 'B' || type === 'LB') && (runs % 2 !== 0)) {
             const tmp = ls.striker;
             ls.striker = ls.nonStriker;
             ls.nonStriker = tmp;
@@ -173,7 +177,7 @@ const CricketEngine = {
             inningsEnded = true;
         }
 
-        // all-out check
+        // all-out check: innings ends when wickets >= playersCount - 1
         try {
             const playersCount = (matchState.teams && matchState.teams[ls.battingTeam] && matchState.teams[ls.battingTeam].players.length) || 11;
             if (ls.wickets >= Math.max(0, playersCount - 1)) inningsEnded = true;
