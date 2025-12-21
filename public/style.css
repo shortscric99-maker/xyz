@@ -132,6 +132,32 @@ body{
 .modal label{display:block;margin:8px 0;font-size:0.95rem}
 .modal select{width:100%;padding:8px;border-radius:6px;background:#222;color:white;border:1px solid var(--border)}
 
+/* Toasts */
+.toast-container {
+  position: fixed;
+  right: 16px;
+  bottom: 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 500;
+}
+.toast {
+  min-width: 220px;
+  max-width: 360px;
+  background: #222;
+  color: white;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 18px rgba(0,0,0,0.6);
+  font-weight: 600;
+  opacity: 0.98;
+}
+.toast.success { border-left: 6px solid var(--primary); }
+.toast.error   { border-left: 6px solid var(--danger); }
+.toast.info    { border-left: 6px solid #2196f3; }
+
 /* Small text */
 .sub-text{font-size:0.9rem;color:#bbb}
 
@@ -145,4 +171,3 @@ body{
     padding: 7px 4px;
   }
 }
-
