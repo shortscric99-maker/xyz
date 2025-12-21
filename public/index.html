@@ -229,6 +229,8 @@
                 </label>
             </div>
 
+            <div id="wicket-info-note" class="sub-text" style="margin-top:6px;"></div>
+
             <div id="new-batter-selection">
                 <label>New Batsman (select):
                     <select id="new-batter-select"></select>
@@ -257,6 +259,31 @@
         </div>
     </div>
 
+    <!-- Start Innings Modal (for innings 2 opener selection) -->
+    <div id="start-innings-modal" class="modal hidden">
+        <div class="modal-card">
+            <h3>Start Innings</h3>
+            <div class="sub-text" id="start-innings-note" style="margin-bottom:8px;"></div>
+            <label>Striker:
+                <select id="start-striker-select"></select>
+            </label>
+            <label>Non-Striker:
+                <select id="start-nonstriker-select"></select>
+            </label>
+            <label>Opening Bowler:
+                <select id="start-bowler-select"></select>
+            </label>
+
+            <div class="modal-actions">
+                <button class="secondary-btn" onclick="cancelStartInnings()">Cancel</button>
+                <button class="primary-btn" onclick="confirmStartInnings()">Confirm & Start</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast container -->
+    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+
     <!-- Scripts -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-auth-compat.js"></script>
@@ -265,4 +292,4 @@
     <script src="cricket.js"></script>
     <script src="app.js"></script>
 </body>
-                                </html>
+</html>
