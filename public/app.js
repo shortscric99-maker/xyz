@@ -9,6 +9,9 @@ let team1Players = [], team2Players = [];
 let tossWinner = null, tossDecision = null, currentMatchDataLocal = null;
 let startInningsPendingPayload = null; // holds data when waiting for opener selection
 
+// Extra modal state
+let extraModalPendingType = null;
+
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     const dateEl = document.getElementById('match-date');
@@ -251,8 +254,45 @@ function renderLiveScore(match){
 
     // Target & runs/balls remaining (if innings 2)
     const targetBanner = document.getElementById('target-banner');
-    if (ls.target) {
-        // compute balls remaining
+    const targetLine1 = document.getElementById('target-banner-line1');
+    const targetLine2 = document.getElementById('target-banner-line2');
+
+    // If match completed -> show winner + margin in the banner
+    if (match.status === 'completed' || ls.matchCompleted) {
+        // compute winner and margin
+        let bannerText1 = '';
+        let bannerText2 = '';
+
+        // determine players count for wicket calculations
+        const battingPlayersList = (match.teams && match.teams[ls.battingTeam] && match.teams[ls.battingTeam].players) || [];
+        const playersCount = battingPlayersList.length || 11;
+
+        if (ls.target) {
+            if (ls.runs >= ls.target) {
+                // chasing batting team achieved target
+                const winnerName = match.teams[ls.battingTeam]?.name || 'Batting Team';
+                const wicketsRemaining = Math.max(0, playersCount - (ls.wickets || 0));
+                bannerText1 = `${winnerName} won`;
+                bannerText2 = `by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+            } else {
+                // defending team won by runs
+                const winnerName = match.teams[ls.bowlingTeam]?.name || 'Bowling Team';
+                const runsMargin = Math.max(0, (ls.target || 0) - (ls.runs || 0) - 1);
+                bannerText1 = `${winnerName} won`;
+                bannerText2 = `by ${runsMargin} run${runsMargin !== 1 ? 's' : ''}`;
+            }
+        } else {
+            // Fallback: no target present — show match completed
+            bannerText1 = `Match completed`;
+            bannerText2 = '';
+        }
+
+        targetLine1.innerText = bannerText1;
+        targetLine2.innerText = bannerText2;
+        targetBanner.classList.remove('hidden');
+
+    } else if (ls.target) {
+        // regular innings-2 live target display
         const oversLimit = (ls.matchOvers || match.overs || 0);
         const oversWhole = Math.floor(ls.overs || 0);
         const ballsInOver = Math.round(((ls.overs || 0) - oversWhole) * 10);
@@ -263,6 +303,8 @@ function renderLiveScore(match){
         document.getElementById('target-score').innerText = ls.target;
         document.getElementById('runs-required').innerText = runsRequired;
         document.getElementById('balls-remaining').innerText = ballsRemaining;
+        targetLine1.innerText = `Target: ${ls.target}`;
+        targetLine2.innerText = `Need: ${runsRequired} runs from ${ballsRemaining} balls`;
         targetBanner.classList.remove('hidden');
     } else {
         targetBanner.classList.add('hidden');
@@ -432,16 +474,14 @@ function getExtrasSummary(playerStats) {
 }
 
 // ---------------- Scoring Actions ----------------
-window.recordScore = async (runs, type = 'legal') => {
+// Unified processor that updates DB
+async function processEvent(event) {
     if (!currentMatchData || !currentMatchId) { showToast("No active match loaded.", 'error'); return; }
 
     // prevent scoring if match completed
     if (currentMatchData.status === 'completed' || (currentMatchData.liveScore && currentMatchData.liveScore.matchCompleted)) {
         return showToast("Match already completed. Scoring disabled.", 'info');
     }
-
-    // Build event
-    const event = { runs, type };
 
     // Keep snapshot for undo
     const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
@@ -510,31 +550,82 @@ window.recordScore = async (runs, type = 'legal') => {
 
             // open modal and populate selects
             openStartInningsModal(startInningsPendingPayload);
+            showToast(`Innings 1 ended. Target for next team: ${target}. Choose openers.`, 'info');
         } else {
             // innings 2 ended or match completed
             const finalLS = prevLS;
             // Determine winner
             let winner = null;
+            let completeNote = '';
             if (finalLS.target) {
+                const battingPlayersList = (fullMatch.teams && fullMatch.teams[finalLS.battingTeam] && fullMatch.teams[finalLS.battingTeam].players) || [];
+                const playersCount = battingPlayersList.length || 11;
                 if (finalLS.runs >= finalLS.target) {
                     // chasing team achieved target => batting team won
                     winner = fullMatch.teams[finalLS.battingTeam]?.name || null;
+                    const wicketsRemaining = Math.max(0, playersCount - (finalLS.wickets || 0));
+                    completeNote = `${winner} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
                 } else {
                     winner = fullMatch.teams[finalLS.bowlingTeam]?.name || null;
+                    const runsMargin = Math.max(0, (finalLS.target || 0) - (finalLS.runs || 0) - 1);
+                    completeNote = `${winner} won by ${runsMargin} run${runsMargin !== 1 ? 's' : ''}`;
                 }
             } else {
-                winner = null;
+                completeNote = 'Match completed.';
             }
-            const completeLog = { type: 'matchComplete', winner: winner || 'N/A', time: (new Date()).toISOString() };
+            const completeLog = { type: 'matchComplete', winner: winner || 'N/A', note: completeNote, time: (new Date()).toISOString() };
             await DataService.updateMatch(currentMatchId, {
                 status: 'completed',
                 'liveScore.matchCompleted': true,
                 history: firebase.firestore.FieldValue.arrayUnion(completeLog)
             });
-            showToast(`Match completed. Winner: ${winner || 'N/A'}`, 'success');
+            showToast(completeNote, 'success');
         }
     }
 };
+
+// Public entrypoint for scoring buttons. For extras, open extra modal first.
+window.recordScore = async (runs, type = 'legal') => {
+    // extras that need run input from user (these are delivered as "extra deliveries")
+    const extraTypes = ['WD','NB','B','LB'];
+    if (extraTypes.includes(type)) {
+        openExtraModal(type);
+        return;
+    }
+    // legal/simple flow
+    await processEvent({ runs, type });
+};
+
+// ---------------- Extra modal flow ----------------
+function openExtraModal(type) {
+    extraModalPendingType = type;
+    const title = document.getElementById('extra-modal-title');
+    const note = document.getElementById('extra-modal-note');
+    const input = document.getElementById('extra-run-input');
+
+    title.innerText = `Extra: ${type}`;
+    note.innerText = `Enter runs (these will be credited to striker) for ${type}. For NB/Wide, 1 extra will be added automatically in addition to runs entered.`;
+    input.value = '0';
+    document.getElementById('extra-modal').classList.remove('hidden');
+}
+
+function cancelExtraModal() {
+    extraModalPendingType = null;
+    document.getElementById('extra-modal').classList.add('hidden');
+    showToast('Extra cancelled', 'info');
+}
+
+async function confirmExtraModal() {
+    const input = document.getElementById('extra-run-input');
+    const val = parseInt(input.value || '0', 10);
+    const type = extraModalPendingType || 'WD';
+    extraModalPendingType = null;
+    document.getElementById('extra-modal').classList.add('hidden');
+
+    // For the user requirement: the runs entered will be added to striker's runs.
+    // Call the central processor
+    await processEvent({ runs: val, type: type });
+}
 
 // ---------------- Wicket flow ----------------
 window.openWicketModal = () => {
@@ -545,12 +636,18 @@ window.openWicketModal = () => {
     const battingTeam = currentMatchData.teams[battingTeamKey];
     const allPlayers = battingTeam.players || [];
 
-    // Determine used players (those who already batted or currently at crease)
+    // Determine used players (those who are out OR currently at crease)
     const used = new Set();
+    // players already marked out in playerStats
+    Object.entries(ls.playerStats || {}).forEach(([p, st]) => {
+        if (st && st.out) used.add(p);
+    });
     if (ls.striker) used.add(ls.striker);
     if (ls.nonStriker) used.add(ls.nonStriker);
+    // Also include replacements recorded in history (older logic)
     (currentMatchData.history || []).forEach(h => { if (h.meta && h.meta.replacement) used.add(h.meta.replacement); });
 
+    // remaining players are those not used (not out AND not currently on crease)
     const remaining = allPlayers.filter(p => !used.has(p));
 
     const nbSelect = document.getElementById('new-batter-select');
@@ -563,7 +660,7 @@ window.openWicketModal = () => {
         // No replacements left -> innings will end if this wicket falls
         nbSelect.disabled = true;
         nbSelect.add(new Option("No players left", ""));
-        document.getElementById('wicket-info-note').innerText = 'No replacement available — this wicket will likely end the innings.';
+        document.getElementById('wicket-info-note').innerText = 'No replacement available — this wicket may end the innings.';
     }
 
     const bowlingTeamKey = ls.bowlingTeam;
@@ -601,7 +698,6 @@ window.confirmWicket = async () => {
 
     result.logEntry.meta = result.logEntry.meta || {};
     result.logEntry.meta.dismissal = dismissal;
-    // Do NOT support manual substitute names. Only allow selection from remaining (handled above).
     if (newBatter) {
         result.logEntry.meta.replacement = newBatter;
     }
@@ -617,8 +713,6 @@ window.confirmWicket = async () => {
             result.liveScore.nonStriker = newBatter;
             if (!result.liveScore.playerStats[result.liveScore.nonStriker]) result.liveScore.playerStats[result.liveScore.nonStriker] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
         }
-    } else {
-        // No replacement available -> leave striker as-is (now marked out). The innings-end logic will detect all-out.
     }
 
     await DataService.updateMatch(currentMatchId, {
@@ -631,9 +725,7 @@ window.confirmWicket = async () => {
 
     if (result.overCompleted && !result.inningsEnded) setTimeout(() => openChangeBowlerModal(true), 200);
     if (result.inningsEnded) {
-        // handled in recordScore chain after DB update; but provide immediate feedback here
         showToast('Innings ended.', 'info');
-        setTimeout(() => { /* handled in recordScore */ }, 250);
     }
 };
 
