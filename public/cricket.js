@@ -74,17 +74,20 @@ const CricketEngine = {
         if (type === 'WD' || type === 'NB') totalRuns += 1;
         ls.runs = (ls.runs || 0) + totalRuns;
 
-        // Batter stats: only increment balls faced for deliveries considered legal (as requested: only 'legal' and 'LB' count as legal deliveries)
-        const isLegalDelivery = (type === 'legal' || type === 'LB');
+        // Determine which delivery types are "legal" for ball counting:
+        // As requested: 'legal', 'LB', and importantly 'W' (wicket) count as legal deliveries.
+        const isLegalDelivery = (type === 'legal' || type === 'LB' || type === 'W');
 
+        // Batter stats: increment balls faced for legal deliveries only
         if (isLegalDelivery) {
             if (ls.striker) {
                 ls.playerStats[ls.striker].balls = (ls.playerStats[ls.striker].balls || 0) + 1;
             }
         }
 
-        // Add runs to striker for any delivery types where runs were entered (per your requirement to credit striker with extra runs entered)
-        if (ls.striker && (type === 'legal' || type === 'NB' || type === 'WD' || type === 'B' || type === 'LB')) {
+        // Add runs to striker for delivery types where runs were entered (we credit the striker with the entered runs)
+        if (ls.striker && (type === 'legal' || type === 'NB' || type === 'WD' || type === 'B' || type === 'LB' || type === 'W')) {
+            // For wickets, runs may be 0 typically; this still credits any extra entered (if any)
             ls.playerStats[ls.striker].runs = (ls.playerStats[ls.striker].runs || 0) + runs;
             if (runs === 4) ls.playerStats[ls.striker].fours = (ls.playerStats[ls.striker].fours || 0) + 1;
             if (runs === 6) ls.playerStats[ls.striker].sixes = (ls.playerStats[ls.striker].sixes || 0) + 1;
@@ -96,7 +99,7 @@ const CricketEngine = {
             if (type !== 'B' && type !== 'LB') {
                 bowlerStats.runs = (bowlerStats.runs || 0) + totalRuns;
             }
-            // increment bowler's balls only for legal deliveries (legal + LB as per request)
+            // increment bowler's balls only for legal deliveries (legal + LB + W)
             if (isLegalDelivery) {
                 bowlerStats.ballsInCurrentOver = (bowlerStats.ballsInCurrentOver || 0) + 1;
                 if (bowlerStats.ballsInCurrentOver === 6) {
@@ -113,7 +116,7 @@ const CricketEngine = {
         }
 
         let overCompleted = false;
-        // Advance balls at match level only for legal deliveries (legal + LB)
+        // Advance balls at match level only for legal deliveries (legal + LB + W)
         if (isLegalDelivery) {
             ballsInOver++;
             if (ballsInOver === 6) {
@@ -141,10 +144,10 @@ const CricketEngine = {
                 ls.playerStats[outPlayer].out = true;
                 ls.playerStats[outPlayer].outInfo = event.dismissal || { mode: 'unknown' };
             }
-            // Keep striker until caller replaces (or innings end)
+            // Keep striker until caller replaces or innings end
         }
 
-        // Rotate strike for odd runs when runs were credited to batsman (per your flow we credit striker with runs entered)
+        // Rotate strike for odd runs
         if ((type === 'legal' || type === 'NB' || type === 'WD' || type === 'B' || type === 'LB') && (runs % 2 !== 0)) {
             const tmp = ls.striker;
             ls.striker = ls.nonStriker;
@@ -164,7 +167,7 @@ const CricketEngine = {
         if (ls.recentBalls.length > 30) ls.recentBalls = ls.recentBalls.slice(-30);
 
         if (overCompleted) {
-            // Reset this-over visuals (user wanted it cleared)
+            // Reset this-over visuals
             ls.recentBalls = [];
         }
 
@@ -172,7 +175,7 @@ const CricketEngine = {
         let inningsEnded = false;
         let matchCompleted = false;
 
-        // overs-based
+        // overs-based (if overs exhausted at over end)
         if (overCompleted && (oversWhole >= matchOversLimit) && matchOversLimit > 0) {
             inningsEnded = true;
         }
@@ -180,7 +183,9 @@ const CricketEngine = {
         // all-out check: innings ends when wickets >= playersCount - 1
         try {
             const playersCount = (matchState.teams && matchState.teams[ls.battingTeam] && matchState.teams[ls.battingTeam].players.length) || 11;
-            if (ls.wickets >= Math.max(0, playersCount - 1)) inningsEnded = true;
+            if (ls.wickets >= Math.max(0, playersCount - 1)) {
+                inningsEnded = true;
+            }
         } catch (e) {}
 
         // chase-based check (only meaningful in innings 2)
@@ -191,7 +196,6 @@ const CricketEngine = {
                 inningsEnded = true;
                 matchCompleted = true;
             }
-            // Also if balls exhausted (handled by overs-based) or all-out above
         }
 
         const logEntry = {
