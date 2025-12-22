@@ -1,18 +1,20 @@
 // public/app.js
-// Global State
+// Fully updated / completed application logic (ready to paste)
+
+/// Global State
 let currentMatchId = null;
 let currentMatchData = null;
 let unsubscribeMatch = null;
 
-// Local temporary holders
+/// Local temporary holders
 let team1Players = [], team2Players = [];
 let tossWinner = null, tossDecision = null, currentMatchDataLocal = null;
 let startInningsPendingPayload = null; // holds data when waiting for opener selection
 
-// Extra modal state
+/// Extra modal state
 let extraModalPendingType = null;
 
-// --- Initialization ---
+/// --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
     const dateEl = document.getElementById('match-date');
     if (dateEl) dateEl.valueAsDate = new Date();
@@ -22,7 +24,7 @@ document.addEventListener('DOMContentLoaded', () => {
         handleRoute();
     });
 
-    // wire up small helpers
+    // wire up dismissal-mode change for wicket modal (if element exists)
     const dismissalModeEl = document.getElementById('dismissal-mode');
     if (dismissalModeEl) {
         dismissalModeEl.addEventListener('change', (e) => {
@@ -56,13 +58,13 @@ function handleRoute(){
     }
 }
 
-// ---------------- small helpers ----------------
+/// ---------------- small helpers ----------------
 function currentUserIsCreator() {
     const user = AuthService.getCurrentUser();
     return user && currentMatchData && (user.uid === currentMatchData.creatorId);
 }
 
-// ---------------- UI helpers (to replace alert()) ----------------
+/// ---------------- UI helpers (to replace alert()) ----------------
 function showToast(msg, type = 'info', timeout = 3500) {
     const container = document.getElementById('toast-container');
     if (!container) { console.log('TOAST:', msg); return; }
@@ -74,11 +76,73 @@ function showToast(msg, type = 'info', timeout = 3500) {
         node.style.transition = 'transform 0.25s, opacity 0.25s';
         node.style.opacity = '0';
         node.style.transform = 'translateX(20px)';
-        setTimeout(() => container.removeChild(node), 300);
+        setTimeout(() => {
+            if (node.parentElement) container.removeChild(node);
+        }, 300);
     }, timeout);
 }
 
-// ---------------- Toss logic ----------------
+/// ---------------- Create match logic ----------------
+document.getElementById('btn-create-match').onclick = () => window.location.hash = 'create';
+
+window.parsePlayers = (team) => {
+    const raw = document.getElementById(`${team}-players-raw`).value;
+    const names = raw.split(/\n|,/).map(n => n.trim()).filter(n => n);
+    if (names.length < 2) { showToast("Please enter at least 2 players", 'error'); return; }
+
+    // Enforce equal players constraint: if other team already parsed, require equal length
+    if (team === 'team1' && team2Players.length > 0 && names.length !== team2Players.length) {
+        showToast("Both teams must have the same number of players. Please match player counts.", 'error');
+        return;
+    }
+    if (team === 'team2' && team1Players.length > 0 && names.length !== team1Players.length) {
+        showToast("Both teams must have the same number of players. Please match player counts.", 'error');
+        return;
+    }
+
+    if (team === 'team1') team1Players = names; else team2Players = names;
+
+    const capSelect = document.getElementById(`${team}-captain`);
+    const wkSelect = document.getElementById(`${team}-wk`);
+    capSelect.innerHTML = ''; wkSelect.innerHTML = '';
+    names.forEach(name => { capSelect.add(new Option(name, name)); wkSelect.add(new Option(name, name)); });
+    document.getElementById(`${team}-roles`).classList.remove('hidden');
+    showToast(`Parsed ${names.length} players for ${team === 'team1' ? 'Team A' : 'Team B'}`, 'success');
+};
+
+document.getElementById('create-match-form').onsubmit = async (e) => {
+    e.preventDefault();
+    if(team1Players.length === 0 || team2Players.length === 0) { showToast("Please confirm players for both teams first.", 'error'); return; }
+    if (team1Players.length !== team2Players.length) { showToast("Teams must have equal number of players.", 'error'); return; }
+
+    const matchData = {
+        title: document.getElementById('match-title').value,
+        venue: document.getElementById('venue').value,
+        date: document.getElementById('match-date').value,
+        overs: parseInt(document.getElementById('overs').value),
+        teams: {
+            teamA: {
+                name: document.getElementById('team1-name').value,
+                players: team1Players,
+                captain: document.getElementById('team1-captain').value,
+                wk: document.getElementById('team1-wk').value
+            },
+            teamB: {
+                name: document.getElementById('team2-name').value,
+                players: team2Players,
+                captain: document.getElementById('team2-captain').value,
+                wk: document.getElementById('team2-wk').value
+            }
+        },
+        status: 'created',
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+
+    const id = await DataService.createMatch(matchData);
+    window.location.hash = `toss/${id}`;
+};
+
+/// ---------------- Toss logic ----------------
 async function setupTossView(matchId){
     document.getElementById('view-toss').classList.remove('hidden');
     const doc = await db.collection('matches').doc(matchId).get();
@@ -88,7 +152,7 @@ async function setupTossView(matchId){
     container.innerHTML = `<button class="toss-btn" onclick="selectTossWinner('teamA', this)">${data.teams.teamA.name}</button>
                            <button class="toss-btn" onclick="selectTossWinner('teamB', this)">${data.teams.teamB.name}</button>`;
     currentMatchDataLocal = data;
-    currentMatchData = data; // keep for convenience
+    currentMatchData = data; // convenience
 }
 
 window.selectTossWinner = (teamKey, btn) => {
@@ -149,7 +213,7 @@ window.finalizeToss = async () => {
     window.location.hash = `match/${currentMatchId}`;
 };
 
-// ---------------- Live scoring ----------------
+/// ---------------- Live scoring ----------------
 function initMatchView(matchId, viewOnly = false){
     document.getElementById('view-match').classList.remove('hidden');
     if (unsubscribeMatch) unsubscribeMatch();
@@ -198,23 +262,20 @@ function renderLiveScore(match){
     document.getElementById('current-bowler-wkts').innerText = cb.wickets || 0;
     document.getElementById('current-bowler-runs').innerText = cb.runs || 0;
 
-    // This over visuals: show recentBalls (current over)
+    // This over visuals: show recentBalls (current over). recentBalls items are objects {type,runs,label}
     const thisOverDiv = document.getElementById('this-over-balls');
     const ballsArr = ls.recentBalls || [];
     thisOverDiv.innerHTML = ballsArr.slice(-6).map(b => {
-        // b can be object {type,runs,label} (new) or string (legacy)
-        if (typeof b === 'string' || !b) {
-            // fallback
-            return `<span class="ball-badge">${b}</span>`;
-        } else {
-            const classes = ['ball-badge'];
-            if (b.type === 'legal' && b.runs === 4) classes.push('boundary-4');
-            if (b.type === 'legal' && b.runs === 6) classes.push('boundary-6');
-            if (['WD','NB','B','LB'].includes(b.type)) classes.push('extra-badge');
-            if (b.type === 'W') classes.push('wicket-badge');
-            const cls = classes.join(' ');
-            return `<span class="${cls}">${b.label}</span>`;
-        }
+        if (!b) return '';
+        // backward-compatible: if b is string, render fallback
+        if (typeof b === 'string') return `<span class="ball-badge">${b}</span>`;
+        const classes = ['ball-badge'];
+        if (b.type === 'legal' && b.runs === 4) classes.push('boundary-4');
+        if (b.type === 'legal' && b.runs === 6) classes.push('boundary-6');
+        if (['WD','NB','B','LB'].includes(b.type)) classes.push('extra-badge');
+        if (b.type === 'W') classes.push('wicket-badge');
+        const cls = classes.join(' ');
+        return `<span class="${cls}">${b.label}</span>`;
     }).join(' ');
 
     // Target & runs/balls remaining (if innings 2)
@@ -224,7 +285,6 @@ function renderLiveScore(match){
 
     // If match completed -> show winner + margin in the banner
     if (match.status === 'completed' || ls.matchCompleted) {
-        // compute winner and margin
         let bannerText1 = '';
         let bannerText2 = '';
 
@@ -253,7 +313,7 @@ function renderLiveScore(match){
         targetBanner.classList.remove('hidden');
 
     } else if (ls.target) {
-        // regular innings-2 live target display
+        // live target display (updates as match processes)
         const oversLimit = (ls.matchOvers || match.overs || 0);
         const oversWhole = Math.floor(ls.overs || 0);
         const ballsInOver = Math.round(((ls.overs || 0) - oversWhole) * 10);
@@ -287,7 +347,7 @@ function renderLiveScore(match){
     document.getElementById('b-wickets').innerText = cb.wickets || 0;
 }
 
-// ---------------- Full scorecards (no change) ----------------
+/// ---------------- Full scorecards ----------------
 function renderFullScorecards(match) {
     const container = document.getElementById('full-scorecards');
     container.innerHTML = '';
@@ -340,7 +400,6 @@ function createProfessionalInningsTable(inn, inningsNum, live = false) {
     (inn.battingPlayers || []).forEach(player => {
         const stats = inn.playerStats?.[player] || {runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null};
         const tr = document.createElement('tr');
-        // Dismissal status/caption
         let dism = stats.out
             ? getProfessionalDismissal(stats.outInfo, player)
             : stats.balls > 0
@@ -410,7 +469,6 @@ function createProfessionalInningsTable(inn, inningsNum, live = false) {
     return wrap;
 }
 
-// Helper for professional dismissal info
 function getProfessionalDismissal(outInfo, batsman) {
     if (!outInfo || !outInfo.mode) return 'OUT';
     switch (outInfo.mode) {
@@ -429,16 +487,17 @@ function getProfessionalDismissal(outInfo, batsman) {
     }
 }
 
-// (Optional) Helper: summarise extras (simplified for this base logic)
 function getExtrasSummary(playerStats) {
+    // Simplified: return 0 extras, can be enhanced to count WD/NB/B/LB across history.
     return { text: '0 (no breakdown available)' };
 }
-// ---------------- Scoring Actions ----------------
-// Unified processor that updates DB and returns engine result
+
+/// ---------------- Scoring Actions ----------------
+/// Unified processor that updates DB and returns engine result (or null on failure)
 async function processEvent(event) {
     if (!currentMatchData || !currentMatchId) { showToast("No active match loaded.", 'error'); return null; }
 
-    // Permissions: only the original creator may score
+    // Permissions: only the original creator may score (viewer-only links are read-only)
     const user = AuthService.getCurrentUser();
     if (!user || user.uid !== currentMatchData.creatorId) {
         showToast("You don't have permission to score this match.", 'error');
@@ -471,10 +530,11 @@ async function processEvent(event) {
 
     await DataService.updateMatch(currentMatchId, updateObj);
 
+    // Return the engine result for caller to take follow-up actions
     return result;
 }
 
-// Public entrypoint for scoring buttons. For extras, open extra modal first.
+/// Public entrypoint for scoring buttons. For extras, open extra modal first.
 window.recordScore = async (runs, type = 'legal') => {
     const extraTypes = ['WD','NB','B','LB'];
     if (extraTypes.includes(type)) {
@@ -482,7 +542,7 @@ window.recordScore = async (runs, type = 'legal') => {
         return;
     }
 
-    // normal legal flow
+    // normal legal (or wicket) flow
     const result = await processEvent({ runs, type });
     if (!result) return;
 
@@ -500,15 +560,15 @@ window.recordScore = async (runs, type = 'legal') => {
         setTimeout(() => openChangeBowlerModal(true), 200);
     } else {
         if (result.overCompleted && !result.inningsEnded) {
-            // wicket occurred case will be handled by confirmWicket flow that invoked processEvent; do not auto-swap here
+            // wicket-case handled elsewhere; still prompt bowler change
             setTimeout(() => openChangeBowlerModal(true), 200);
         }
     }
 
-    // innings end handling occurs inside processEvent caller chain
+    // innings end handling occurs inside caller chain (processEvent returns flags; higher-level logic saves innings etc.)
 };
 
-// ---------------- Extra modal flow ----------------
+/// ---------------- Extra modal flow ----------------
 function openExtraModal(type) {
     extraModalPendingType = type;
     const title = document.getElementById('extra-modal-title');
@@ -538,7 +598,7 @@ async function confirmExtraModal() {
     const result = await processEvent({ runs: val, type: type });
     if (!result) return;
 
-    // If overCompleted and not wicket -> swap as in recordScore
+    // If overCompleted and NOT wicket -> swap striker/non-striker
     if (result.overCompleted && !result.inningsEnded && !result.wicketOccurred) {
         const doc = await db.collection('matches').doc(currentMatchId).get();
         const fresh = { id: doc.id, ...doc.data() };
@@ -549,12 +609,11 @@ async function confirmExtraModal() {
         await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
         setTimeout(() => openChangeBowlerModal(true), 200);
     } else if (result.overCompleted && result.wicketOccurred) {
-        // bowler change prompt, replacement handling will be done in confirmWicket flow originally triggered by user
         setTimeout(() => openChangeBowlerModal(true), 200);
     }
 }
 
-// ---------------- Wicket flow ----------------
+/// ---------------- Wicket flow ----------------
 window.openWicketModal = () => {
     if (!currentMatchData) { showToast("Match not loaded.", 'error'); return; }
     const ls = currentMatchData.liveScore;
@@ -625,7 +684,7 @@ window.confirmWicket = async () => {
     const result = await processEvent({ runs: 0, type: 'W', dismissal });
     if (!result) return;
 
-    // If replacement provided, we must set it in DB appropriately.
+    // If replacement provided, set it in DB appropriately.
     if (newBatter) {
         // fetch freshest doc
         const doc = await db.collection('matches').doc(currentMatchId).get();
@@ -636,17 +695,14 @@ window.confirmWicket = async () => {
         if (result.inningsEnded) {
             // nothing to set
         } else {
-            // If wicket was on last ball of over, user requested that new batsman should be non-striker at start of next over.
+            // If wicket was on last ball of over -> new batsman should be non-striker at start of next over
             if (result.overCompleted) {
-                // place new batsman as nonStriker and set striker to previous nonStriker
                 const prevNonStriker = freshLS.nonStriker;
-                // set striker to prevNonStriker (they will face first ball of next over)
-                freshLS.striker = prevNonStriker;
+                freshLS.striker = prevNonStriker; // who will face first ball next over
                 freshLS.nonStriker = newBatter;
                 if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
             } else {
                 // normal case: replace the out striker
-                // If striker is marked out in playerStats, replace striker, else replace nonStriker
                 if (freshLS.striker && freshLS.playerStats && freshLS.playerStats[freshLS.striker] && freshLS.playerStats[freshLS.striker].out) {
                     freshLS.striker = newBatter;
                     if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
@@ -666,7 +722,7 @@ window.confirmWicket = async () => {
     if (result.inningsEnded) showToast('Innings ended.', 'info');
 };
 
-// ---------------- Bowler change ----------------
+/// ---------------- Bowler change ----------------
 window.openChangeBowlerModal = (fromOverEnd = false) => {
     if (!currentMatchData) { showToast("Match not loaded.", 'error'); return; }
     const ls = currentMatchData.liveScore;
@@ -712,7 +768,7 @@ window.confirmChangeBowler = async () => {
     closeChangeBowlerModal();
 };
 
-// ---------------- Undo ----------------
+/// ---------------- Undo ----------------
 window.undoLastBall = async () => {
     if (!currentMatchData || !currentMatchData.liveScore) { showToast("No match loaded.", 'error'); return; }
     const history = currentMatchData.history || [];
@@ -733,7 +789,7 @@ window.undoLastBall = async () => {
     }
 };
 
-// ---------------- Share (viewer-only) ----------------
+/// ---------------- Share (viewer-only) ----------------
 window.shareMatch = () => {
     if (!currentMatchId) { showToast("No match to share.", 'error'); return; }
     // viewer-only link (watch) — this link is intended only for viewing; scoring controls will be hidden
@@ -745,7 +801,8 @@ window.shareMatch = () => {
         navigator.clipboard.writeText(url).then(()=>{ showToast("Viewer link copied to clipboard.", 'success'); }).catch(()=>{ prompt("Copy this viewer link:", url); });
     } else { prompt("Copy this viewer link:", url); }
 };
-// ---------------- START INNINGS modal flow ----------------
+
+/// ---------------- START INNINGS modal flow ----------------
 function openStartInningsModal(payload) {
     // payload: { fullMatch, battingTeamKey, bowlingTeamKey, target, prevRuns }
     const modal = document.getElementById('start-innings-modal');
