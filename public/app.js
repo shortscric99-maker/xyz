@@ -497,6 +497,12 @@ function getExtrasSummary(playerStats) {
 async function processEvent(event) {
     if (!currentMatchData || !currentMatchId) { showToast("No active match loaded.", 'error'); return null; }
 
+    // Block scoring when match is in innings break
+    if (currentMatchData.status === 'innings_break') {
+        showToast("Innings is between break. Start next innings to continue scoring.", 'info');
+        return null;
+    }
+
     // Permissions: only the original creator may score (viewer-only links are read-only)
     const user = AuthService.getCurrentUser();
     if (!user || user.uid !== currentMatchData.creatorId) {
@@ -530,7 +536,87 @@ async function processEvent(event) {
 
     await DataService.updateMatch(currentMatchId, updateObj);
 
-    // Return the engine result for caller to take follow-up actions
+    // ---------- INNINGS END HANDLING (restores missing flow) ----------
+    if (result.inningsEnded) {
+        // fetch freshest match doc
+        const doc = await db.collection('matches').doc(currentMatchId).get();
+        const fullMatch = { id: doc.id, ...doc.data() };
+        const prevLS = fullMatch.liveScore || {};
+
+        // Save summary of completed innings into innings array
+        const inningsSummary = {
+            innings: prevLS.innings || 1,
+            battingTeamKey: prevLS.battingTeam,
+            battingTeamName: fullMatch.teams[prevLS.battingTeam]?.name || '',
+            runs: prevLS.runs || 0,
+            wickets: prevLS.wickets || 0,
+            overs: prevLS.overs || 0,
+            battingPlayers: fullMatch.teams[prevLS.battingTeam]?.players || [],
+            playerStats: prevLS.playerStats || {},
+            bowlers: prevLS.bowlers || {}
+        };
+
+        await DataService.pushInningsSummary(currentMatchId, inningsSummary);
+
+        // If it was innings 1 -> prepare to start innings 2
+        if ((prevLS.innings || 1) === 1 && !result.matchCompleted) {
+            const prevRuns = prevLS.runs || 0;
+            const target = prevRuns + 1;
+
+            // Swap teams for next innings
+            const battingTeamKey = prevLS.bowlingTeam; // batting team for next innings
+            const bowlingTeamKey = prevLS.battingTeam; // bowling team for next innings
+
+            // Build starter payload and show modal to choose openers & bowler
+            startInningsPendingPayload = {
+                fullMatch,
+                battingTeamKey,
+                bowlingTeamKey,
+                target,
+                prevRuns
+            };
+
+            // set match into 'innings_break' to block scoring until new innings started
+            await DataService.updateMatch(currentMatchId, {
+                status: 'innings_break',
+                history: firebase.firestore.FieldValue.arrayUnion({ type: 'inningsEnd', previousRuns: prevRuns, time: (new Date()).toISOString(), note: `Innings ${inningsSummary.innings} ended. Target ${target}` })
+            });
+
+            // open modal client-side (use freshest data)
+            openStartInningsModal(startInningsPendingPayload);
+            showToast(`Innings ${inningsSummary.innings} ended. Target for next team: ${target}. Choose openers.`, 'info');
+        } else {
+            // innings 2 ended or match completed -> finalize match
+            const finalLS = prevLS;
+            // Determine winner
+            let winner = null;
+            let completeNote = '';
+            if (finalLS.target) {
+                const battingPlayersList = (fullMatch.teams && fullMatch.teams[finalLS.battingTeam] && fullMatch.teams[finalLS.battingTeam].players) || [];
+                const playersCount = battingPlayersList.length || 11;
+                if (finalLS.runs >= finalLS.target) {
+                    winner = fullMatch.teams[finalLS.battingTeam]?.name || null;
+                    const wicketsRemaining = Math.max(0, playersCount - (finalLS.wickets || 0));
+                    completeNote = `${winner} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+                } else {
+                    winner = fullMatch.teams[finalLS.bowlingTeam]?.name || null;
+                    const runsMargin = Math.max(0, (finalLS.target || 0) - (finalLS.runs || 0) - 1);
+                    completeNote = `${winner} won by ${runsMargin} run${runsMargin !== 1 ? 's' : ''}`;
+                }
+            } else {
+                completeNote = 'Match completed.';
+            }
+            const completeLog = { type: 'matchComplete', winner: winner || 'N/A', note: completeNote, time: (new Date()).toISOString() };
+            await DataService.updateMatch(currentMatchId, {
+                status: 'completed',
+                'liveScore.matchCompleted': true,
+                history: firebase.firestore.FieldValue.arrayUnion(completeLog)
+            });
+            showToast(completeNote, 'success');
+        }
+    } // end inningsEnded handling
+
+    // Return engine result
     return result;
 }
 
@@ -564,8 +650,6 @@ window.recordScore = async (runs, type = 'legal') => {
             setTimeout(() => openChangeBowlerModal(true), 200);
         }
     }
-
-    // innings end handling occurs inside caller chain (processEvent returns flags; higher-level logic saves innings etc.)
 };
 
 /// ---------------- Extra modal flow ----------------
@@ -721,7 +805,6 @@ window.confirmWicket = async () => {
     if (result.overCompleted && !result.inningsEnded) setTimeout(() => openChangeBowlerModal(true), 200);
     if (result.inningsEnded) showToast('Innings ended.', 'info');
 };
-
 /// ---------------- Bowler change ----------------
 window.openChangeBowlerModal = (fromOverEnd = false) => {
     if (!currentMatchData) { showToast("Match not loaded.", 'error'); return; }
