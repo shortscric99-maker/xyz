@@ -20,7 +20,10 @@ db.enablePersistence().catch(err => console.log("Persistence error", err));
 const AuthService = {
     signInAnonymously: () => auth.signInAnonymously(),
     getCurrentUser: () => auth.currentUser,
-    onStateChanged: (cb) => auth.onAuthStateChanged(cb)
+    onStateChanged: (cb) => auth.onAuthStateChanged(cb),
+    signInWithEmail: (email, password) => auth.signInWithEmailAndPassword(email, password),
+    createUserWithEmail: (email, password) => auth.createUserWithEmailAndPassword(email, password),
+    signOut: () => auth.signOut()
 };
 
 const DataService = {
@@ -56,5 +59,37 @@ const DataService = {
         return db.collection('matches').doc(matchId).update({
             innings: firebase.firestore.FieldValue.arrayUnion(inningsSummary)
         });
+    },
+
+    // Tournaments
+    createTournament: async (tournament) => {
+        const user = auth.currentUser;
+        if (!user) return null;
+        const docRef = await db.collection('tournaments').add({
+            ...tournament,
+            creatorId: user.uid,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        return docRef.id;
+    },
+
+    subscribeToTournaments: (userId, callback) => {
+        return db.collection('tournaments').where('creatorId', '==', userId)
+            .orderBy('createdAt', 'desc')
+            .onSnapshot(snap => {
+                const arr = [];
+                snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+                callback(arr);
+            });
+    },
+
+    subscribeToTournamentMatches: (tournamentId, callback) => {
+        return db.collection('matches').where('tournamentId', '==', tournamentId)
+            .orderBy('createdAt', 'desc')
+            .onSnapshot(snap => {
+                const arr = [];
+                snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+                callback(arr);
+            });
     }
 };
