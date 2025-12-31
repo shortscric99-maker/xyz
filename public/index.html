@@ -12,7 +12,7 @@
     <div id="app">
         <!-- Header -->
         <header class="app-header">
-            <h1 id="header-title" onclick="window.location.hash=''">CricScore 🏏</h1>
+            <h1 id="header-title" onclick="window.location.hash='dashboard'">CricScore 🏏</h1>
             <div id="connection-status" class="status-indicator"></div>
         </header>
 
@@ -41,9 +41,9 @@
                         <input type="password" id="login-password" placeholder="Password" required />
                         <div class="row" style="margin-top:8px">
                             <button type="submit" class="primary-btn">Sign In</button>
-                            <button type="button" class="secondary-btn" id="btn-back-to-landing" onclick="window.location.hash=''">Cancel</button>
+                            <button type="button" class="secondary-btn" id="btn-back-to-landing">Cancel</button>
                         </div>
-                        <div class="muted" style="margin-top:8px">No account? Create one using the same form — if sign in fails try "Create account" below.</div>
+                        <div class="muted" style="margin-top:8px">No account? Create one using the same form — press "Create Account".</div>
                         <div class="row" style="margin-top:8px">
                             <button type="button" id="btn-create-account" class="secondary-btn">Create Account</button>
                         </div>
@@ -51,7 +51,7 @@
                 </div>
             </section>
 
-            <!-- 1. Dashboard -->
+            <!-- DASHBOARD / HOME -->
             <section id="view-dashboard" class="view hidden">
                 <div class="hero">
                     <h2>Professional Cricket Scoring</h2>
@@ -63,11 +63,11 @@
                 </div>
             </section>
 
-            <!-- 2. Create Match (Enhanced) -->
+            <!-- CREATE MATCH -->
             <section id="view-create" class="view hidden">
                 <div class="header-row">
                     <h2>Match Details</h2>
-                    <button class="back-btn" onclick="window.location.hash=''">Cancel</button>
+                    <button class="back-btn" onclick="window.location.hash='dashboard'">Cancel</button>
                 </div>
 
                 <form id="create-match-form">
@@ -86,12 +86,18 @@
                                 <option value="leather">Leather Ball</option>
                             </select>
                         </div>
-                        <div class="row">
+
+                        <!-- Tournament toggle -->
+                        <label class="toggle-row">
+                            <input id="assign-to-tournament-toggle" type="checkbox" />
+                            <span>Assign this match to a tournament</span>
+                        </label>
+
+                        <div class="row hidden" id="tournament-select-row">
                             <label style="width:100%">
-                                Add to Tournament (optional)
+                                Choose tournament
                                 <select id="match-tournament-select">
                                     <option value="">-- None --</option>
-                                    <!-- user tournaments injected here -->
                                 </select>
                             </label>
                         </div>
@@ -102,7 +108,7 @@
                         <!-- Team A -->
                         <div class="team-card">
                             <input type="text" id="team1-name" placeholder="Team A Name" class="team-name-input" required />
-                            <textarea id="team1-players-raw" placeholder="Paste 11 Player Names (one per line)..." rows="6"></textarea>
+                            <textarea id="team1-players-raw" placeholder="Paste player names (one per line)..." rows="6"></textarea>
                             <button type="button" class="secondary-btn" onclick="parsePlayers('team1')">Confirm Players</button>
 
                             <div id="team1-roles" class="roles-select hidden">
@@ -114,7 +120,7 @@
                         <!-- Team B -->
                         <div class="team-card">
                             <input type="text" id="team2-name" placeholder="Team B Name" class="team-name-input" required />
-                            <textarea id="team2-players-raw" placeholder="Paste 11 Player Names (one per line)..." rows="6"></textarea>
+                            <textarea id="team2-players-raw" placeholder="Paste player names (one per line)..." rows="6"></textarea>
                             <button type="button" class="secondary-btn" onclick="parsePlayers('team2')">Confirm Players</button>
 
                             <div id="team2-roles" class="roles-select hidden">
@@ -128,7 +134,7 @@
                 </form>
             </section>
 
-            <!-- 3. Toss View -->
+            <!-- TOSS VIEW -->
             <section id="view-toss" class="view hidden">
                 <h2>Match Toss</h2>
                 <div class="toss-card">
@@ -152,7 +158,7 @@
                 </div>
             </section>
 
-            <!-- 4. Live Match View -->
+            <!-- LIVE MATCH VIEW -->
             <section id="view-match" class="view hidden">
                 <!-- Scoreboard -->
                 <div class="score-card-live">
@@ -249,15 +255,38 @@
                     </div>
                 </div>
             </section>
+
+            <!-- TOURNAMENT VIEW -->
+            <section id="view-tournaments" class="view hidden">
+                <div class="header-row">
+                    <h2>Your Tournaments</h2>
+                    <div>
+                        <button class="primary-btn" onclick="openCreateTournamentModal()">New Tournament</button>
+                        <button class="secondary-btn" onclick="window.location.hash='dashboard'">Back</button>
+                    </div>
+                </div>
+                <div id="tournaments-list" class="tournaments-list"></div>
+                <div id="tournament-matches" class="matches-list"></div>
+            </section>
+
+            <!-- PROFILE view (dynamically created) -->
+            <section id="view-profile-placeholder" class="view hidden"></section>
         </main>
 
-        <!-- Footer -->
-        <footer class="app-footer">
-            <div class="footer-links">
-                <a href="#tournaments" id="link-tournaments">Tournaments</a>
-                <a href="#" onclick="window.location.hash='';return false;">Home</a>
-            </div>
-            <div id="user-area" class="footer-user-area"></div>
+        <!-- Footer Navigation -->
+        <footer class="app-footer-nav">
+            <button class="nav-btn active" id="nav-home" onclick="navigateTab('dashboard')" title="Home">
+                <svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"><path d="M3 11.5L12 4l9 7.5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>Home</span>
+            </button>
+            <button class="nav-btn" id="nav-tournaments" onclick="navigateTab('tournaments')" title="Tournaments">
+                <svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"><path d="M12 2v20" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 7h14" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span>Tournaments</span>
+            </button>
+            <button class="nav-btn" id="nav-profile" onclick="navigateTab('profile')" title="Profile">
+                <svg class="icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8z" stroke-width="1.6"/><path d="M6 20a6 6 0 0 1 12 0" stroke-width="1.6"/></svg>
+                <span>Profile</span>
+            </button>
         </footer>
     </div>
 
@@ -344,7 +373,7 @@
         </div>
     </div>
 
-    <!-- Start Tournament Modal -->
+    <!-- Create Tournament Modal -->
     <div id="create-tournament-modal" class="modal hidden">
         <div class="modal-card">
             <h3>Create Tournament</h3>
@@ -358,19 +387,6 @@
         </div>
     </div>
 
-    <!-- Tournament List View -->
-    <section id="view-tournaments" class="view hidden">
-        <div class="header-row">
-            <h2>Your Tournaments</h2>
-            <div>
-                <button class="primary-btn" onclick="openCreateTournamentModal()">New Tournament</button>
-                <button class="secondary-btn" onclick="window.location.hash=''">Back</button>
-            </div>
-        </div>
-        <div id="tournaments-list" class="tournaments-list"></div>
-        <div id="tournament-matches" class="matches-list"></div>
-    </section>
-
     <!-- Toast container -->
     <div id="toast-container" class="toast-container"></div>
 
@@ -382,4 +398,4 @@
     <script src="cricket.js"></script>
     <script src="app.js"></script>
 </body>
-    </html>
+</html>
