@@ -1,30 +1,69 @@
 // public/app.js
-// Fully updated / completed application logic (ready to paste)
+// Fully merged — complete application logic (landing/login, tournaments, full scoring flow).
+// Ready to copy-paste into your project (replaces previous public/app.js).
 
-/// Global State
+/* GLOBAL STATE */
 let currentMatchId = null;
 let currentMatchData = null;
 let unsubscribeMatch = null;
+let unsubscribeTournaments = null;
+let unsubscribeTournamentMatches = null;
 
-/// Local temporary holders
 let team1Players = [], team2Players = [];
 let tossWinner = null, tossDecision = null, currentMatchDataLocal = null;
 let startInningsPendingPayload = null; // holds data when waiting for opener selection
 
-/// Extra modal state
+let tournamentsList = []; // cached tournaments for current user
 let extraModalPendingType = null;
 
-/// --- Initialization ---
+/* INITIALIZATION */
 document.addEventListener('DOMContentLoaded', () => {
     const dateEl = document.getElementById('match-date');
     if (dateEl) dateEl.valueAsDate = new Date();
 
-    AuthService.onStateChanged(user => {
-        if (!user) AuthService.signInAnonymously();
-        handleRoute();
-    });
+    // Landing buttons
+    const guestBtn = document.getElementById('btn-guest-continue');
+    if (guestBtn) guestBtn.onclick = async () => await AuthService.signInAnonymously();
 
-    // wire up dismissal-mode change for wicket modal (if element exists)
+    const loginOpenBtn = document.getElementById('btn-login-open');
+    if (loginOpenBtn) loginOpenBtn.onclick = () => { window.location.hash = 'login'; };
+
+    // Login handlers
+    const backBtn = document.getElementById('btn-back-to-landing');
+    if (backBtn) backBtn.onclick = () => { window.location.hash = ''; };
+
+    const createAccBtn = document.getElementById('btn-create-account');
+    if (createAccBtn) createAccBtn.onclick = async () => {
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        if (!email || !password) { showToast('Enter email & password', 'error'); return; }
+        try {
+            await AuthService.createUserWithEmail(email, password);
+            showToast('Account created & signed in', 'success');
+            window.location.hash = '';
+        } catch (err) {
+            console.error(err);
+            showToast('Account creation failed: ' + (err.message || err), 'error');
+        }
+    };
+
+    const loginForm = document.getElementById('login-form');
+    if (loginForm) loginForm.onsubmit = async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('login-email').value;
+        const password = document.getElementById('login-password').value;
+        if (!email || !password) { showToast('Enter email & password', 'error'); return; }
+        try {
+            await AuthService.signInWithEmail(email, password);
+            showToast('Signed in', 'success');
+            window.location.hash = '';
+        } catch (err) {
+            console.error(err);
+            showToast('Sign in failed: ' + (err.message || err), 'error');
+        }
+    };
+
+    // Dismissal change wiring
     const dismissalModeEl = document.getElementById('dismissal-mode');
     if (dismissalModeEl) {
         dismissalModeEl.addEventListener('change', (e) => {
@@ -33,18 +72,37 @@ document.addEventListener('DOMContentLoaded', () => {
             else document.getElementById('fielder-selection').classList.add('hidden');
         });
     }
+
+    // tournaments link
+    const tlink = document.getElementById('link-tournaments');
+    if (tlink) tlink.addEventListener('click', (ev) => { ev.preventDefault(); window.location.hash = 'tournaments'; });
+
+    // Auth state
+    AuthService.onStateChanged(user => {
+        renderUserArea(user);
+        if (user) attachTournamentSubscription(user.uid);
+        handleRoute();
+    });
 });
+
 window.addEventListener('hashchange', handleRoute);
 
+/* ROUTER */
 function handleRoute(){
     const hash = window.location.hash.slice(1);
     document.querySelectorAll('.view').forEach(el => el.classList.add('hidden'));
     document.querySelectorAll('.view').forEach(el => el.classList.remove('active'));
 
     if (!hash) {
+        document.getElementById('view-landing').classList.remove('hidden');
+    } else if (hash === 'login') {
+        document.getElementById('view-login').classList.remove('hidden');
+    } else if (hash === 'dashboard' || hash === 'home') {
         document.getElementById('view-dashboard').classList.remove('hidden');
+        loadRecentMatches();
     } else if (hash === 'create') {
         document.getElementById('view-create').classList.remove('hidden');
+        populateTournamentSelect();
     } else if (hash.startsWith('toss/')) {
         currentMatchId = hash.split('/')[1];
         setupTossView(currentMatchId);
@@ -52,19 +110,21 @@ function handleRoute(){
         currentMatchId = hash.split('/')[1];
         initMatchView(currentMatchId, false);
     } else if (hash.startsWith('watch/')) {
-        // viewer-only route (shared link)
         currentMatchId = hash.split('/')[1];
         initMatchView(currentMatchId, true);
+    } else if (hash === 'tournaments') {
+        document.getElementById('view-tournaments').classList.remove('hidden');
+        renderTournamentsList();
+    } else if (hash.startsWith('tournament/')) {
+        const tid = hash.split('/')[1];
+        document.getElementById('view-tournaments').classList.remove('hidden');
+        renderTournamentMatches(tid);
+    } else {
+        document.getElementById('view-landing').classList.remove('hidden');
     }
 }
 
-/// ---------------- small helpers ----------------
-function currentUserIsCreator() {
-    const user = AuthService.getCurrentUser();
-    return user && currentMatchData && (user.uid === currentMatchData.creatorId);
-}
-
-/// ---------------- UI helpers (to replace alert()) ----------------
+/* UI HELPERS */
 function showToast(msg, type = 'info', timeout = 3500) {
     const container = document.getElementById('toast-container');
     if (!container) { console.log('TOAST:', msg); return; }
@@ -82,15 +142,148 @@ function showToast(msg, type = 'info', timeout = 3500) {
     }, timeout);
 }
 
-/// ---------------- Create match logic ----------------
-document.getElementById('btn-create-match').onclick = () => window.location.hash = 'create';
+/* AUTH / USER AREA */
+function renderUserArea(user) {
+    const ua = document.getElementById('user-area');
+    if (!ua) return;
+    ua.innerHTML = '';
+    if (!user) {
+        ua.innerHTML = `<span>Not signed in</span>`;
+    } else {
+        const name = user.email || 'Guest';
+        const node = document.createElement('div');
+        node.innerHTML = `<span>${name}</span> <button class="secondary-btn small" id="btn-signout">Sign out</button>`;
+        ua.appendChild(node);
+        document.getElementById('btn-signout').onclick = async () => {
+            await AuthService.signOut();
+            showToast('Signed out', 'info');
+            window.location.hash = '';
+        };
+    }
+}
+
+/* TOURNAMENT SUBSCRIPTION & UI */
+function attachTournamentSubscription(userId) {
+    if (unsubscribeTournaments) unsubscribeTournaments();
+    unsubscribeTournaments = DataService.subscribeToTournaments(userId, (arr) => {
+        tournamentsList = arr;
+        populateTournamentSelect();
+        if (window.location.hash.slice(1) === 'tournaments') renderTournamentsList();
+    });
+}
+
+function populateTournamentSelect() {
+    const sel = document.getElementById('match-tournament-select');
+    if (!sel) return;
+    sel.innerHTML = `<option value="">-- None --</option>`;
+    (tournamentsList || []).forEach(t => sel.add(new Option(t.name, t.id)));
+}
+
+function openCreateTournamentModal() {
+    const user = AuthService.getCurrentUser();
+    if (!user) { showToast('Sign in to create tournaments', 'error'); return; }
+    document.getElementById('create-tournament-modal').classList.remove('hidden');
+}
+function closeCreateTournamentModal() { document.getElementById('create-tournament-modal').classList.add('hidden'); }
+
+async function confirmCreateTournament() {
+    const name = document.getElementById('tournament-name-input').value.trim();
+    if (!name) { showToast('Enter tournament name', 'error'); return; }
+    try {
+        const id = await DataService.createTournament({ name });
+        showToast('Tournament created', 'success');
+        document.getElementById('tournament-name-input').value = '';
+        closeCreateTournamentModal();
+        if (id) window.location.hash = `tournament/${id}`;
+    } catch (err) {
+        console.error(err);
+        showToast('Failed to create tournament', 'error');
+    }
+}
+
+function renderTournamentsList() {
+    const list = document.getElementById('tournaments-list');
+    list.innerHTML = '';
+    (tournamentsList || []).forEach(t => {
+        const node = document.createElement('div');
+        node.className = 'tournament-card';
+        node.innerHTML = `<div><strong>${t.name}</strong><div class="muted">Created: ${t.createdAt ? new Date(t.createdAt.seconds*1000).toLocaleString() : '-'}</div></div>
+                          <div><button class="secondary-btn" onclick="viewTournament('${t.id}')">View</button></div>`;
+        list.appendChild(node);
+    });
+}
+
+function viewTournament(tid) {
+    window.location.hash = `tournament/${tid}`;
+}
+
+function renderTournamentMatches(tid) {
+    const matchesContainer = document.getElementById('tournament-matches');
+    matchesContainer.innerHTML = `<div class="muted">Loading matches for tournament...</div>`;
+
+    if (unsubscribeTournamentMatches) unsubscribeTournamentMatches();
+    unsubscribeTournamentMatches = DataService.subscribeToTournamentMatches(tid, (matches) => {
+        matchesContainer.innerHTML = '';
+        if (!matches || matches.length === 0) {
+            matchesContainer.innerHTML = `<div class="muted">No matches yet in this tournament.</div>`;
+            return;
+        }
+        matches.forEach(m => {
+            const div = document.createElement('div');
+            div.className = 'team-card';
+            div.style.display = 'flex';
+            div.style.justifyContent = 'space-between';
+            div.style.alignItems = 'center';
+            div.innerHTML = `<div>
+                                <div style="font-weight:800">${m.title}</div>
+                                <div class="sub-text">${m.venue} • ${m.date || ''}</div>
+                             </div>
+                             <div style="display:flex;gap:8px">
+                                <button class="secondary-btn" onclick="window.location.hash='match/${m.id}'">Open</button>
+                                <button class="secondary-btn" onclick="window.location.hash='watch/${m.id}'">Share (view)</button>
+                             </div>`;
+            matchesContainer.appendChild(div);
+        });
+    });
+}
+
+/* RECENT MATCHES FOR DASHBOARD */
+async function loadRecentMatches() {
+    const container = document.getElementById('recent-matches-list');
+    container.innerHTML = '<div class="muted">Loading...</div>';
+    try {
+        const snap = await db.collection('matches').orderBy('createdAt', 'desc').limit(10).get();
+        container.innerHTML = '';
+        snap.forEach(doc => {
+            const m = { id: doc.id, ...doc.data() };
+            const node = document.createElement('div');
+            node.className = 'team-card';
+            node.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center">
+                                <div>
+                                  <div style="font-weight:800">${m.title}</div>
+                                  <div class="sub-text">${m.venue} • ${m.date || ''}</div>
+                                </div>
+                                <div style="display:flex;gap:8px">
+                                  <button class="secondary-btn" onclick="window.location.hash='match/${m.id}'">Open</button>
+                                  <button class="secondary-btn" onclick="window.location.hash='watch/${m.id}'">Share (view)</button>
+                                </div>
+                              </div>`;
+            container.appendChild(node);
+        });
+    } catch (err) {
+        console.error(err);
+        container.innerHTML = '<div class="muted">Failed to load matches</div>';
+    }
+}
+
+/* CREATE MATCH FLOW */
+document.getElementById('btn-create-match')?.addEventListener('click', () => window.location.hash = 'create');
 
 window.parsePlayers = (team) => {
     const raw = document.getElementById(`${team}-players-raw`).value;
     const names = raw.split(/\n|,/).map(n => n.trim()).filter(n => n);
     if (names.length < 2) { showToast("Please enter at least 2 players", 'error'); return; }
 
-    // Enforce equal players constraint: if other team already parsed, require equal length
     if (team === 'team1' && team2Players.length > 0 && names.length !== team2Players.length) {
         showToast("Both teams must have the same number of players. Please match player counts.", 'error');
         return;
@@ -135,14 +328,20 @@ document.getElementById('create-match-form').onsubmit = async (e) => {
             }
         },
         status: 'created',
-        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+        tournamentId: (document.getElementById('match-tournament-select')?.value) || null
     };
 
     const id = await DataService.createMatch(matchData);
-    window.location.hash = `toss/${id}`;
+    if (id) {
+        showToast('Match created', 'success');
+        window.location.hash = `toss/${id}`;
+    } else {
+        showToast('Failed to create match. Sign in required.', 'error');
+    }
 };
 
-/// ---------------- Toss logic ----------------
+/* TOSS LOGIC */
 async function setupTossView(matchId){
     document.getElementById('view-toss').classList.remove('hidden');
     const doc = await db.collection('matches').doc(matchId).get();
@@ -152,7 +351,7 @@ async function setupTossView(matchId){
     container.innerHTML = `<button class="toss-btn" onclick="selectTossWinner('teamA', this)">${data.teams.teamA.name}</button>
                            <button class="toss-btn" onclick="selectTossWinner('teamB', this)">${data.teams.teamB.name}</button>`;
     currentMatchDataLocal = data;
-    currentMatchData = data; // convenience
+    currentMatchData = data;
 }
 
 window.selectTossWinner = (teamKey, btn) => {
@@ -184,16 +383,13 @@ window.finalizeToss = async () => {
     const battingTeamKey = (tossDecision === 'bat') ? tossWinner : (tossWinner === 'teamA' ? 'teamB' : 'teamA');
     const bowlingTeamKey = (battingTeamKey === 'teamA') ? 'teamB' : 'teamA';
 
-    // Build playerStats
     const playerStats = {};
     currentMatchData.teams.teamA.players.forEach(p => { playerStats[p] = { runs:0, balls:0, fours:0, sixes:0, out:false, outInfo:null }; });
     currentMatchData.teams.teamB.players.forEach(p => { if(!playerStats[p]) playerStats[p] = { runs:0, balls:0, fours:0, sixes:0, out:false, outInfo:null }; });
 
-    // bowlers map
     const bowlers = {};
     currentMatchData.teams[bowlingTeamKey].players.forEach(p => { bowlers[p] = { runs:0, wickets:0, overs:0, maidens:0, ballsInCurrentOver:0 }; });
 
-    // Initialize liveScore
     const liveScoreInit = {
         battingTeam: battingTeamKey,
         bowlingTeam: bowlingTeamKey,
@@ -213,7 +409,460 @@ window.finalizeToss = async () => {
     window.location.hash = `match/${currentMatchId}`;
 };
 
-/// ---------------- Live scoring ----------------
+/* CRICKET ENGINE USAGE
+   The CricketEngine object is kept in public/cricket.js (already in your project)
+   We'll call CricketEngine.processBall(...) and then handle DB updates and innings transitions here.
+*/
+
+/* PROCESS EVENT & INNINGS-END HANDLING */
+async function processEvent(event) {
+    if (!currentMatchData || !currentMatchId) { showToast("No active match loaded.", 'error'); return null; }
+
+    // Block scoring during innings break
+    if (currentMatchData.status === 'innings_break') {
+        showToast("Innings break — start next innings to continue scoring.", 'info');
+        return null;
+    }
+
+// Permission check
+    const user = AuthService.getCurrentUser();
+    if (!user || user.uid !== currentMatchData.creatorId) {
+        showToast("You don't have permission to score this match.", 'error');
+        return null;
+    }
+
+    if (currentMatchData.status === 'completed' || (currentMatchData.liveScore && currentMatchData.liveScore.matchCompleted)) {
+        showToast("Match already completed. Scoring disabled.", 'info');
+        return null;
+    }
+
+    // Snapshot for undo
+    const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
+
+    // Process via engine
+    const result = CricketEngine.processBall(currentMatchData, event);
+
+    // Ensure recentBalls are objects for consistent UI labeling: convert simple ballBadge strings to object form
+    if (result.liveScore && Array.isArray(result.liveScore.recentBalls)) {
+        result.liveScore.recentBalls = result.liveScore.recentBalls.map(b => {
+            if (typeof b === 'string') {
+                // map classical string values to object {type, runs, label}
+                if (b === 'WD' || b === 'NB' || b === 'W' || b === 'B' || b === 'LB') {
+                    return { type: b, runs: 0, label: b };
+                }
+                if (b === '4') return { type: 'legal', runs: 4, label: '4' };
+                if (b === '6') return { type: 'legal', runs: 6, label: '6' };
+                const n = parseInt(b,10);
+                if (!isNaN(n)) return { type: 'legal', runs: n, label: `${n}` };
+                return { type: 'legal', runs: 0, label: b };
+            }
+            return b;
+        });
+    }
+
+    // Add meta
+    result.logEntry.meta = result.logEntry.meta || {};
+    result.logEntry.meta.bowler = (currentMatchData.liveScore && currentMatchData.liveScore.bowler) || null;
+    result.logEntry.meta.striker = (currentMatchData.liveScore && currentMatchData.liveScore.striker) || null;
+
+    // Save update
+    const updateObj = {
+        liveScore: result.liveScore,
+        lastSnapshot: lastSnapshot,
+        history: firebase.firestore.FieldValue.arrayUnion(result.logEntry)
+    };
+
+    await DataService.updateMatch(currentMatchId, updateObj);
+
+    // INNINGS-END HANDLING
+    if (result.inningsEnded) {
+        // fetch freshest match doc
+        const doc = await db.collection('matches').doc(currentMatchId).get();
+        const fullMatch = { id: doc.id, ...doc.data() };
+        const prevLS = fullMatch.liveScore || {};
+
+        // Save completed innings summary
+        const inningsSummary = {
+            innings: prevLS.innings || 1,
+            battingTeamKey: prevLS.battingTeam,
+            battingTeamName: fullMatch.teams[prevLS.battingTeam]?.name || '',
+            runs: prevLS.runs || 0,
+            wickets: prevLS.wickets || 0,
+            overs: prevLS.overs || 0,
+            battingPlayers: fullMatch.teams[prevLS.battingTeam]?.players || [],
+            playerStats: prevLS.playerStats || {},
+            bowlers: prevLS.bowlers || {}
+        };
+
+        await DataService.pushInningsSummary(currentMatchId, inningsSummary);
+
+        // If innings 1 -> prepare innings 2
+        if ((prevLS.innings || 1) === 1 && !result.matchCompleted) {
+            const prevRuns = prevLS.runs || 0;
+            const target = prevRuns + 1;
+
+            const battingTeamKey = prevLS.bowlingTeam;
+            const bowlingTeamKey = prevLS.battingTeam;
+
+            startInningsPendingPayload = { fullMatch, battingTeamKey, bowlingTeamKey, target, prevRuns };
+
+            // set status to innings_break to block scoring until user selects openers
+            await DataService.updateMatch(currentMatchId, {
+                status: 'innings_break',
+                history: firebase.firestore.FieldValue.arrayUnion({ type: 'inningsEnd', previousRuns: prevRuns, time: (new Date()).toISOString(), note: `Innings ${inningsSummary.innings} ended. Target ${target}` })
+            });
+
+            openStartInningsModal(startInningsPendingPayload);
+            showToast(`Innings ${inningsSummary.innings} ended. Target for next team: ${target}. Choose openers.`, 'info');
+
+        } else {
+            // innings 2 ended or match complete
+            const finalLS = prevLS;
+            let winner = null;
+            let completeNote = '';
+            if (finalLS.target) {
+                const battingPlayersList = (fullMatch.teams && fullMatch.teams[finalLS.battingTeam] && fullMatch.teams[finalLS.battingTeam].players) || [];
+                const playersCount = battingPlayersList.length || 11;
+                if (finalLS.runs >= finalLS.target) {
+                    winner = fullMatch.teams[finalLS.battingTeam]?.name || null;
+                    const wicketsRemaining = Math.max(0, playersCount - (finalLS.wickets || 0));
+                    completeNote = `${winner} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
+                } else {
+                    winner = fullMatch.teams[finalLS.bowlingTeam]?.name || null;
+                    const runsMargin = Math.max(0, (finalLS.target || 0) - (finalLS.runs || 0) - 1);
+                    completeNote = `${winner} won by ${runsMargin} run${runsMargin !== 1 ? 's' : ''}`;
+                }
+            } else {
+                completeNote = 'Match completed.';
+            }
+            const completeLog = { type: 'matchComplete', winner: winner || 'N/A', note: completeNote, time: (new Date()).toISOString() };
+            await DataService.updateMatch(currentMatchId, {
+                status: 'completed',
+                'liveScore.matchCompleted': true,
+                history: firebase.firestore.FieldValue.arrayUnion(completeLog)
+            });
+            showToast(completeNote, 'success');
+        }
+    }
+
+    return result;
+}
+
+/* RECORD SCORE ENTRY (buttons) */
+window.recordScore = async (runs, type = 'legal') => {
+    const extraTypes = ['WD','NB','B','LB'];
+    if (extraTypes.includes(type)) {
+        openExtraModal(type);
+        return;
+    }
+
+    const result = await processEvent({ runs, type });
+    if (!result) return;
+
+    // handle over-complete strike swap only when appropriate (non-extra legal handling done in engine)
+    if (result.overCompleted && !result.inningsEnded && !result.wicketOccurred) {
+        const doc = await db.collection('matches').doc(currentMatchId).get();
+        const fresh = { id: doc.id, ...doc.data() };
+        const freshLS = fresh.liveScore || {};
+        const tmp = freshLS.striker;
+        freshLS.striker = freshLS.nonStriker;
+        freshLS.nonStriker = tmp;
+        await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
+        setTimeout(() => openChangeBowlerModal(true), 200);
+    } else {
+        if (result.overCompleted && !result.inningsEnded) {
+            setTimeout(() => openChangeBowlerModal(true), 200);
+        }
+    }
+};
+
+/* EXTRA MODAL */
+function openExtraModal(type) {
+    extraModalPendingType = type;
+    const title = document.getElementById('extra-modal-title');
+    const note = document.getElementById('extra-modal-note');
+    const input = document.getElementById('extra-run-input');
+
+    title.innerText = `Extra: ${type}`;
+    note.innerText = `Enter runs (these will be credited to striker). For NB/Wide, 1 extra will be added automatically in addition to runs entered.`;
+    input.value = '0';
+    document.getElementById('extra-modal').classList.remove('hidden');
+}
+
+function cancelExtraModal() {
+    extraModalPendingType = null;
+    document.getElementById('extra-modal').classList.add('hidden');
+    showToast('Extra cancelled', 'info');
+}
+
+async function confirmExtraModal() {
+    const input = document.getElementById('extra-run-input');
+    const val = parseInt(input.value || '0', 10);
+    const type = extraModalPendingType || 'WD';
+    extraModalPendingType = null;
+    document.getElementById('extra-modal').classList.add('hidden');
+
+    const result = await processEvent({ runs: val, type: type });
+    if (!result) return;
+
+    if (result.overCompleted && !result.inningsEnded && !result.wicketOccurred) {
+        const doc = await db.collection('matches').doc(currentMatchId).get();
+        const fresh = { id: doc.id, ...doc.data() };
+        const freshLS = fresh.liveScore || {};
+        const tmp = freshLS.striker;
+        freshLS.striker = freshLS.nonStriker;
+        freshLS.nonStriker = tmp;
+        await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
+        setTimeout(() => openChangeBowlerModal(true), 200);
+    } else if (result.overCompleted && result.wicketOccurred) {
+        setTimeout(() => openChangeBowlerModal(true), 200);
+    }
+}
+
+/* WICKET FLOW */
+window.openWicketModal = () => {
+    if (!currentMatchData) { showToast("Match not loaded.", 'error'); return; }
+    const ls = currentMatchData.liveScore;
+    if (!ls) { showToast("Live score not available.", 'error'); return; }
+    const battingTeamKey = ls.battingTeam;
+    const battingTeam = currentMatchData.teams[battingTeamKey];
+    const allPlayers = battingTeam.players || [];
+
+    // used players = those out OR currently at crease
+    const used = new Set();
+    Object.entries(ls.playerStats || {}).forEach(([p, st]) => { if (st && st.out) used.add(p); });
+    if (ls.striker) used.add(ls.striker);
+    if (ls.nonStriker) used.add(ls.nonStriker);
+
+    const remaining = allPlayers.filter(p => !used.has(p));
+
+    const nbSelect = document.getElementById('new-batter-select');
+    nbSelect.innerHTML = '';
+    if (remaining.length > 0) {
+        remaining.forEach(p => nbSelect.add(new Option(p,p)));
+        nbSelect.disabled = false;
+        document.getElementById('wicket-info-note').innerText = '';
+    } else {
+        nbSelect.disabled = true;
+        nbSelect.add(new Option("No players left", ""));
+        document.getElementById('wicket-info-note').innerText = 'No replacement available — this wicket may end the innings.';
+    }
+
+    const bowlingTeamKey = ls.bowlingTeam;
+    const bowlingPlayers = currentMatchData.teams[bowlingTeamKey].players || [];
+    const fielderSelect = document.getElementById('dismissal-fielder');
+    fielderSelect.innerHTML = '';
+    bowlingPlayers.forEach(p => fielderSelect.add(new Option(p,p)));
+
+    document.getElementById('dismissal-mode').value = 'bowled';
+    document.getElementById('fielder-selection').classList.add('hidden');
+
+    document.getElementById('wicket-modal').classList.remove('hidden');
+};
+window.closeWicketModal = () => document.getElementById('wicket-modal').classList.add('hidden');
+
+window.confirmWicket = async () => {
+    const user = AuthService.getCurrentUser();
+    if (!user || !currentMatchData || user.uid !== currentMatchData.creatorId) {
+        showToast("You don't have permission to score this match.", 'error');
+        return;
+    }
+
+    const mode = document.getElementById('dismissal-mode').value;
+    const fielder = document.getElementById('dismissal-fielder').value;
+    const nbSelect = document.getElementById('new-batter-select');
+    const newBatter = nbSelect.disabled ? null : nbSelect.value;
+
+    const ls = currentMatchData.liveScore;
+    const bowlingTeamKey = ls.bowlingTeam;
+    const wicketkeeper = currentMatchData.teams[bowlingTeamKey].wk || null;
+
+    let dismissal = { mode };
+    if (mode === 'catch') dismissal.fielder = fielder || null;
+    if (mode === 'stumping' || mode === 'runout') dismissal.fielder = wicketkeeper || null;
+    if (mode === 'bowled' || mode === 'lbw') dismissal.fielder = ls.bowler || null;
+
+    const result = await processEvent({ runs: 0, type: 'W', dismissal });
+    if (!result) return;
+
+    // apply replacement if provided and innings not ended
+    if (newBatter) {
+        const doc = await db.collection('matches').doc(currentMatchId).get();
+        const fresh = { id: doc.id, ...doc.data() };
+        const freshLS = fresh.liveScore || {};
+
+        if (!result.inningsEnded) {
+            if (result.overCompleted) {
+                // wicket on last ball of over -> new batsman will be non-striker at start of next over
+                const prevNonStriker = freshLS.nonStriker;
+                freshLS.striker = prevNonStriker;
+                freshLS.nonStriker = newBatter;
+                if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
+            } else {
+                // normal: replace striker who got out
+                if (freshLS.striker && freshLS.playerStats && freshLS.playerStats[freshLS.striker] && freshLS.playerStats[freshLS.striker].out) {
+                    freshLS.striker = newBatter;
+                    if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
+                } else {
+                    freshLS.nonStriker = newBatter;
+                    if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
+                }
+            }
+            await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
+        }
+    }
+
+    closeWicketModal();
+
+    if (result.overCompleted && !result.inningsEnded) setTimeout(() => openChangeBowlerModal(true), 200);
+    if (result.inningsEnded) showToast('Innings ended.', 'info');
+};
+/* BOWLER CHANGE */
+window.openChangeBowlerModal = (fromOverEnd = false) => {
+    if (!currentMatchData) { showToast("Match not loaded.", 'error'); return; }
+    const ls = currentMatchData.liveScore;
+    if (!ls) { showToast("Live score not available.", 'error'); return; }
+    const bowlingTeamKey = ls.bowlingTeam;
+    const bowlingPlayers = currentMatchData.teams[bowlingTeamKey].players || [];
+
+    const select = document.getElementById('new-bowler-select');
+    select.innerHTML = '';
+    bowlingPlayers.forEach(p => { if (p !== ls.bowler) select.add(new Option(p,p)); });
+    if (select.options.length === 0) select.add(new Option(ls.bowler || 'No bowler', ls.bowler || ''));
+
+    document.getElementById('bowler-modal').classList.remove('hidden');
+    document.getElementById('bowler-modal').dataset.auto = fromOverEnd ? '1' : '0';
+};
+window.closeChangeBowlerModal = () => { document.getElementById('bowler-modal').classList.add('hidden'); document.getElementById('bowler-modal').dataset.auto = '0'; };
+
+window.confirmChangeBowler = async () => {
+    const user = AuthService.getCurrentUser();
+    if (!user || !currentMatchData || user.uid !== currentMatchData.creatorId) {
+        showToast("You don't have permission to score this match.", 'error');
+        return;
+    }
+
+    const selected = document.getElementById('new-bowler-select').value;
+    if (!selected) { showToast("Please select a bowler.", 'error'); return; }
+    const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
+
+    const ls = JSON.parse(JSON.stringify(currentMatchData.liveScore));
+    ls.bowler = selected;
+    ls.bowlers = ls.bowlers || {};
+    if (!ls.bowlers[selected]) ls.bowlers[selected] = { runs:0,wickets:0,overs:0,maidens:0,ballsInCurrentOver:0 };
+
+    const logEntry = { type: 'bowlerChange', newBowler: selected, time: (new Date()).toISOString() };
+
+    await DataService.updateMatch(currentMatchId, {
+        liveScore: ls,
+        lastSnapshot: lastSnapshot,
+        history: firebase.firestore.FieldValue.arrayUnion(logEntry)
+    });
+
+    closeChangeBowlerModal();
+};
+
+/* UNDO */
+window.undoLastBall = async () => {
+    if (!currentMatchData || !currentMatchData.liveScore) { showToast("No match loaded.", 'error'); return; }
+    const history = currentMatchData.history || [];
+    const lastSnapshot = currentMatchData.lastSnapshot || null;
+    if (!lastSnapshot || history.length === 0) { showToast("Nothing to undo.", 'info'); return; }
+
+    const lastLog = history[history.length - 1];
+    try {
+        await DataService.updateMatch(currentMatchId, {
+            liveScore: lastSnapshot,
+            history: firebase.firestore.FieldValue.arrayRemove(lastLog),
+            lastSnapshot: firebase.firestore.FieldValue.delete()
+        });
+        showToast("Last action undone.", 'success');
+    } catch (err) {
+        console.error("Undo failed", err);
+        showToast("Undo failed. See console for details.", 'error');
+    }
+};
+
+/* SHARE (viewer-only link) */
+window.shareMatch = () => {
+    if (!currentMatchId) { showToast("No match to share.", 'error'); return; }
+    const url = window.location.origin + window.location.pathname + `#watch/${currentMatchId}`;
+    if (navigator.share) {
+        navigator.share({ title: document.getElementById('live-match-title').innerText || 'Match', text: 'Live score (viewer link)', url })
+            .catch(err => { navigator.clipboard?.writeText(url).then(()=>showToast("Viewer link copied to clipboard.", 'success')); });
+    } else if (navigator.clipboard) {
+        navigator.clipboard.writeText(url).then(()=>{ showToast("Viewer link copied to clipboard.", 'success'); }).catch(()=>{ prompt("Copy this viewer link:", url); });
+    } else { prompt("Copy this viewer link:", url); }
+};
+
+/* START INNINGS MODAL */
+function openStartInningsModal(payload) {
+    const modal = document.getElementById('start-innings-modal');
+    if (!modal) return;
+
+    const note = document.getElementById('start-innings-note');
+    note.innerText = `Innings ended. Target for next team: ${payload.target}. Choose openers & opening bowler.`;
+
+    const sSelect = document.getElementById('start-striker-select');
+    const nsSelect = document.getElementById('start-nonstriker-select');
+    const bSelect = document.getElementById('start-bowler-select');
+
+    sSelect.innerHTML = ''; nsSelect.innerHTML = ''; bSelect.innerHTML = '';
+
+    const battingPlayers = payload.fullMatch.teams[payload.battingTeamKey].players || [];
+    const bowlingPlayers = payload.fullMatch.teams[payload.bowlingTeamKey].players || [];
+
+    battingPlayers.forEach(p => { sSelect.add(new Option(p,p)); nsSelect.add(new Option(p,p)); });
+    if (nsSelect.options.length > 1) nsSelect.selectedIndex = 1;
+    bowlingPlayers.forEach(p => bSelect.add(new Option(p,p)));
+
+    modal.classList.remove('hidden');
+}
+
+window.cancelStartInnings = () => {
+    startInningsPendingPayload = null;
+    document.getElementById('start-innings-modal').classList.add('hidden');
+    showToast("Innings start cancelled.", 'info');
+};
+
+window.confirmStartInnings = async () => {
+    if (!startInningsPendingPayload) { showToast("No innings pending.", 'error'); return; }
+    const { fullMatch, battingTeamKey, bowlingTeamKey, target } = startInningsPendingPayload;
+    const striker = document.getElementById('start-striker-select').value;
+    const nonStriker = document.getElementById('start-nonstriker-select').value;
+    const bowler = document.getElementById('start-bowler-select').value;
+
+    const playerStats = {};
+    (fullMatch.teams[battingTeamKey].players || []).forEach(p => { playerStats[p] = { runs:0, balls:0, fours:0, sixes:0, out:false, outInfo:null }; });
+    (fullMatch.teams[bowlingTeamKey].players || []).forEach(p => { if(!playerStats[p]) playerStats[p] = { runs:0, balls:0, fours:0, sixes:0, out:false, outInfo:null }; });
+
+    const bowlers = {};
+    (fullMatch.teams[bowlingTeamKey].players || []).forEach(p => { bowlers[p] = { runs:0, wickets:0, overs:0, maidens:0, ballsInCurrentOver:0 }; });
+
+    const newLS = {
+        battingTeam: battingTeamKey,
+        bowlingTeam: bowlingTeamKey,
+        runs: 0, wickets: 0, overs: 0,
+        striker: striker, nonStriker: nonStriker, bowler: bowler,
+        recentBalls: [], playerStats, bowlers,
+        history: [], lastSnapshot: null, innings: 2,
+        target: target, matchOvers: fullMatch.overs || 0, matchCompleted: false
+    };
+
+    const inningChangeLog = { type: 'inningsStart', time: (new Date()).toISOString(), note: `Innings 2 started. Target ${target}` };
+
+    await DataService.updateMatch(currentMatchId, {
+        liveScore: newLS,
+        status: 'live',
+        history: firebase.firestore.FieldValue.arrayUnion(inningChangeLog)
+    });
+
+    startInningsPendingPayload = null;
+    document.getElementById('start-innings-modal').classList.add('hidden');
+    showToast(`Innings 2 started. Target: ${target}`, 'success');
+};
+
+/* RENDER LIVE SCORE */
 function initMatchView(matchId, viewOnly = false){
     document.getElementById('view-match').classList.remove('hidden');
     if (unsubscribeMatch) unsubscribeMatch();
@@ -244,7 +893,7 @@ function renderLiveScore(match){
     document.getElementById('score-display').innerText = `${ls.runs || 0}/${ls.wickets || 0}`;
     document.getElementById('overs-display').innerText = `(${ls.overs || 0})`;
 
-    // Current Play (top section)
+    // top section
     document.getElementById('striker-name-large').innerText = ls.striker || '-';
     document.getElementById('striker-r').innerText = ls.playerStats?.[ls.striker]?.runs || 0;
     document.getElementById('striker-b').innerText = ls.playerStats?.[ls.striker]?.balls || 0;
@@ -262,28 +911,25 @@ function renderLiveScore(match){
     document.getElementById('current-bowler-wkts').innerText = cb.wickets || 0;
     document.getElementById('current-bowler-runs').innerText = cb.runs || 0;
 
-    // This over visuals: show recentBalls (current over). recentBalls items are objects {type,runs,label}
+    // This over visuals
     const thisOverDiv = document.getElementById('this-over-balls');
     const ballsArr = ls.recentBalls || [];
     thisOverDiv.innerHTML = ballsArr.slice(-6).map(b => {
         if (!b) return '';
-        // backward-compatible: if b is string, render fallback
         if (typeof b === 'string') return `<span class="ball-badge">${b}</span>`;
         const classes = ['ball-badge'];
         if (b.type === 'legal' && b.runs === 4) classes.push('boundary-4');
         if (b.type === 'legal' && b.runs === 6) classes.push('boundary-6');
         if (['WD','NB','B','LB'].includes(b.type)) classes.push('extra-badge');
         if (b.type === 'W') classes.push('wicket-badge');
-        const cls = classes.join(' ');
-        return `<span class="${cls}">${b.label}</span>`;
+        return `<span class="${classes.join(' ')}">${b.label}${(b.type === 'NB' || b.type === 'WD' || b.type === 'B' || b.type === 'LB') && b.runs ? '+' + b.runs : ''}</span>`;
     }).join(' ');
 
-    // Target & runs/balls remaining (if innings 2)
+    // Target banner & dynamic runs/balls remaining
     const targetBanner = document.getElementById('target-banner');
     const targetLine1 = document.getElementById('target-banner-line1');
     const targetLine2 = document.getElementById('target-banner-line2');
 
-    // If match completed -> show winner + margin in the banner
     if (match.status === 'completed' || ls.matchCompleted) {
         let bannerText1 = '';
         let bannerText2 = '';
@@ -313,7 +959,6 @@ function renderLiveScore(match){
         targetBanner.classList.remove('hidden');
 
     } else if (ls.target) {
-        // live target display (updates as match processes)
         const oversLimit = (ls.matchOvers || match.overs || 0);
         const oversWhole = Math.floor(ls.overs || 0);
         const ballsInOver = Math.round(((ls.overs || 0) - oversWhole) * 10);
@@ -347,17 +992,15 @@ function renderLiveScore(match){
     document.getElementById('b-wickets').innerText = cb.wickets || 0;
 }
 
-/// ---------------- Full scorecards ----------------
+/* FULL SCORECARDS */
 function renderFullScorecards(match) {
     const container = document.getElementById('full-scorecards');
     container.innerHTML = '';
 
-    // Show previous innings summaries (if any)
     (match.innings || []).forEach((inn, idx) => {
         container.appendChild(createProfessionalInningsTable(inn, idx + 1));
     });
 
-    // Show current live innings (even if completed)
     const ls = match.liveScore || {};
     const liveInningsObj = {
         innings: ls.innings || (match.innings?.length || 0) + 1,
@@ -419,7 +1062,6 @@ function createProfessionalInningsTable(inn, inningsNum, live = false) {
     });
     batTable.appendChild(batTbody);
 
-    // Batting extras/total row
     const extras = getExtrasSummary(inn.playerStats);
     const extrasRow = document.createElement('tr');
     extrasRow.innerHTML =
@@ -427,7 +1069,6 @@ function createProfessionalInningsTable(inn, inningsNum, live = false) {
          <td colspan="5" class="extras-val">${extras.text}</td>`;
     batTbody.appendChild(extrasRow);
 
-    // Totals row
     const totalRow = document.createElement('tr');
     totalRow.className = 'total-row';
     totalRow.innerHTML =
@@ -488,468 +1129,7 @@ function getProfessionalDismissal(outInfo, batsman) {
 }
 
 function getExtrasSummary(playerStats) {
-    // Simplified: return 0 extras, can be enhanced to count WD/NB/B/LB across history.
     return { text: '0 (no breakdown available)' };
 }
 
-/// ---------------- Scoring Actions ----------------
-/// Unified processor that updates DB and returns engine result (or null on failure)
-async function processEvent(event) {
-    if (!currentMatchData || !currentMatchId) { showToast("No active match loaded.", 'error'); return null; }
-
-    // Block scoring when match is in innings break
-    if (currentMatchData.status === 'innings_break') {
-        showToast("Innings is between break. Start next innings to continue scoring.", 'info');
-        return null;
-    }
-
-    // Permissions: only the original creator may score (viewer-only links are read-only)
-    const user = AuthService.getCurrentUser();
-    if (!user || user.uid !== currentMatchData.creatorId) {
-        showToast("You don't have permission to score this match.", 'error');
-        return null;
-    }
-
-    // prevent scoring if match completed
-    if (currentMatchData.status === 'completed' || (currentMatchData.liveScore && currentMatchData.liveScore.matchCompleted)) {
-        showToast("Match already completed. Scoring disabled.", 'info');
-        return null;
-    }
-
-    // Keep snapshot for undo
-    const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
-
-    // Process via engine
-    const result = CricketEngine.processBall(currentMatchData, event);
-
-    // Add metadata
-    result.logEntry.meta = result.logEntry.meta || {};
-    result.logEntry.meta.bowler = (currentMatchData.liveScore && currentMatchData.liveScore.bowler) || null;
-    result.logEntry.meta.striker = (currentMatchData.liveScore && currentMatchData.liveScore.striker) || null;
-
-    // Update liveScore and history
-    const updateObj = {
-        liveScore: result.liveScore,
-        lastSnapshot: lastSnapshot,
-        history: firebase.firestore.FieldValue.arrayUnion(result.logEntry)
-    };
-
-    await DataService.updateMatch(currentMatchId, updateObj);
-
-    // ---------- INNINGS END HANDLING (restores missing flow) ----------
-    if (result.inningsEnded) {
-        // fetch freshest match doc
-        const doc = await db.collection('matches').doc(currentMatchId).get();
-        const fullMatch = { id: doc.id, ...doc.data() };
-        const prevLS = fullMatch.liveScore || {};
-
-        // Save summary of completed innings into innings array
-        const inningsSummary = {
-            innings: prevLS.innings || 1,
-            battingTeamKey: prevLS.battingTeam,
-            battingTeamName: fullMatch.teams[prevLS.battingTeam]?.name || '',
-            runs: prevLS.runs || 0,
-            wickets: prevLS.wickets || 0,
-            overs: prevLS.overs || 0,
-            battingPlayers: fullMatch.teams[prevLS.battingTeam]?.players || [],
-            playerStats: prevLS.playerStats || {},
-            bowlers: prevLS.bowlers || {}
-        };
-
-        await DataService.pushInningsSummary(currentMatchId, inningsSummary);
-
-        // If it was innings 1 -> prepare to start innings 2
-        if ((prevLS.innings || 1) === 1 && !result.matchCompleted) {
-            const prevRuns = prevLS.runs || 0;
-            const target = prevRuns + 1;
-
-            // Swap teams for next innings
-            const battingTeamKey = prevLS.bowlingTeam; // batting team for next innings
-            const bowlingTeamKey = prevLS.battingTeam; // bowling team for next innings
-
-            // Build starter payload and show modal to choose openers & bowler
-            startInningsPendingPayload = {
-                fullMatch,
-                battingTeamKey,
-                bowlingTeamKey,
-                target,
-                prevRuns
-            };
-
-            // set match into 'innings_break' to block scoring until new innings started
-            await DataService.updateMatch(currentMatchId, {
-                status: 'innings_break',
-                history: firebase.firestore.FieldValue.arrayUnion({ type: 'inningsEnd', previousRuns: prevRuns, time: (new Date()).toISOString(), note: `Innings ${inningsSummary.innings} ended. Target ${target}` })
-            });
-
-            // open modal client-side (use freshest data)
-            openStartInningsModal(startInningsPendingPayload);
-            showToast(`Innings ${inningsSummary.innings} ended. Target for next team: ${target}. Choose openers.`, 'info');
-        } else {
-            // innings 2 ended or match completed -> finalize match
-            const finalLS = prevLS;
-            // Determine winner
-            let winner = null;
-            let completeNote = '';
-            if (finalLS.target) {
-                const battingPlayersList = (fullMatch.teams && fullMatch.teams[finalLS.battingTeam] && fullMatch.teams[finalLS.battingTeam].players) || [];
-                const playersCount = battingPlayersList.length || 11;
-                if (finalLS.runs >= finalLS.target) {
-                    winner = fullMatch.teams[finalLS.battingTeam]?.name || null;
-                    const wicketsRemaining = Math.max(0, playersCount - (finalLS.wickets || 0));
-                    completeNote = `${winner} won by ${wicketsRemaining} wicket${wicketsRemaining !== 1 ? 's' : ''}`;
-                } else {
-                    winner = fullMatch.teams[finalLS.bowlingTeam]?.name || null;
-                    const runsMargin = Math.max(0, (finalLS.target || 0) - (finalLS.runs || 0) - 1);
-                    completeNote = `${winner} won by ${runsMargin} run${runsMargin !== 1 ? 's' : ''}`;
-                }
-            } else {
-                completeNote = 'Match completed.';
-            }
-            const completeLog = { type: 'matchComplete', winner: winner || 'N/A', note: completeNote, time: (new Date()).toISOString() };
-            await DataService.updateMatch(currentMatchId, {
-                status: 'completed',
-                'liveScore.matchCompleted': true,
-                history: firebase.firestore.FieldValue.arrayUnion(completeLog)
-            });
-            showToast(completeNote, 'success');
-        }
-    } // end inningsEnded handling
-
-    // Return engine result
-    return result;
-}
-
-/// Public entrypoint for scoring buttons. For extras, open extra modal first.
-window.recordScore = async (runs, type = 'legal') => {
-    const extraTypes = ['WD','NB','B','LB'];
-    if (extraTypes.includes(type)) {
-        openExtraModal(type);
-        return;
-    }
-
-    // normal legal (or wicket) flow
-    const result = await processEvent({ runs, type });
-    if (!result) return;
-
-    // If over completed and NOT ending innings and NOT a wicket on that ball -> swap striker/non-striker in DB
-    if (result.overCompleted && !result.inningsEnded && !result.wicketOccurred) {
-        // fetch freshest doc and swap
-        const doc = await db.collection('matches').doc(currentMatchId).get();
-        const fresh = { id: doc.id, ...doc.data() };
-        const freshLS = fresh.liveScore || {};
-        const tmp = freshLS.striker;
-        freshLS.striker = freshLS.nonStriker;
-        freshLS.nonStriker = tmp;
-        await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
-        // then prompt bowler change
-        setTimeout(() => openChangeBowlerModal(true), 200);
-    } else {
-        if (result.overCompleted && !result.inningsEnded) {
-            // wicket-case handled elsewhere; still prompt bowler change
-            setTimeout(() => openChangeBowlerModal(true), 200);
-        }
-    }
-};
-
-/// ---------------- Extra modal flow ----------------
-function openExtraModal(type) {
-    extraModalPendingType = type;
-    const title = document.getElementById('extra-modal-title');
-    const note = document.getElementById('extra-modal-note');
-    const input = document.getElementById('extra-run-input');
-
-    title.innerText = `Extra: ${type}`;
-    note.innerText = `Enter runs (these will be credited to striker) for ${type}. For NB/Wide, 1 extra will be added automatically in addition to runs entered.`;
-    input.value = '0';
-    document.getElementById('extra-modal').classList.remove('hidden');
-}
-
-function cancelExtraModal() {
-    extraModalPendingType = null;
-    document.getElementById('extra-modal').classList.add('hidden');
-    showToast('Extra cancelled', 'info');
-}
-
-async function confirmExtraModal() {
-    const input = document.getElementById('extra-run-input');
-    const val = parseInt(input.value || '0', 10);
-    const type = extraModalPendingType || 'WD';
-    extraModalPendingType = null;
-    document.getElementById('extra-modal').classList.add('hidden');
-
-    // call processor
-    const result = await processEvent({ runs: val, type: type });
-    if (!result) return;
-
-    // If overCompleted and NOT wicket -> swap striker/non-striker
-    if (result.overCompleted && !result.inningsEnded && !result.wicketOccurred) {
-        const doc = await db.collection('matches').doc(currentMatchId).get();
-        const fresh = { id: doc.id, ...doc.data() };
-        const freshLS = fresh.liveScore || {};
-        const tmp = freshLS.striker;
-        freshLS.striker = freshLS.nonStriker;
-        freshLS.nonStriker = tmp;
-        await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
-        setTimeout(() => openChangeBowlerModal(true), 200);
-    } else if (result.overCompleted && result.wicketOccurred) {
-        setTimeout(() => openChangeBowlerModal(true), 200);
-    }
-}
-
-/// ---------------- Wicket flow ----------------
-window.openWicketModal = () => {
-    if (!currentMatchData) { showToast("Match not loaded.", 'error'); return; }
-    const ls = currentMatchData.liveScore;
-    if (!ls) { showToast("Live score not available.", 'error'); return; }
-    const battingTeamKey = ls.battingTeam;
-    const battingTeam = currentMatchData.teams[battingTeamKey];
-    const allPlayers = battingTeam.players || [];
-
-    // Determine used players (those who are out OR currently at crease)
-    const used = new Set();
-    Object.entries(ls.playerStats || {}).forEach(([p, st]) => {
-        if (st && st.out) used.add(p);
-    });
-    if (ls.striker) used.add(ls.striker);
-    if (ls.nonStriker) used.add(ls.nonStriker);
-    (currentMatchData.history || []).forEach(h => { if (h.meta && h.meta.replacement) used.add(h.meta.replacement); });
-
-    const remaining = allPlayers.filter(p => !used.has(p));
-
-    const nbSelect = document.getElementById('new-batter-select');
-    nbSelect.innerHTML = '';
-    if (remaining.length > 0) {
-        remaining.forEach(p => nbSelect.add(new Option(p,p)));
-        nbSelect.disabled = false;
-        document.getElementById('wicket-info-note').innerText = '';
-    } else {
-        nbSelect.disabled = true;
-        nbSelect.add(new Option("No players left", ""));
-        document.getElementById('wicket-info-note').innerText = 'No replacement available — this wicket may end the innings.';
-    }
-
-    const bowlingTeamKey = ls.bowlingTeam;
-    const bowlingPlayers = currentMatchData.teams[bowlingTeamKey].players || [];
-    const fielderSelect = document.getElementById('dismissal-fielder');
-    fielderSelect.innerHTML = '';
-    bowlingPlayers.forEach(p => fielderSelect.add(new Option(p,p)));
-
-    document.getElementById('dismissal-mode').value = 'bowled';
-    document.getElementById('fielder-selection').classList.add('hidden');
-
-    document.getElementById('wicket-modal').classList.remove('hidden');
-};
-window.closeWicketModal = () => document.getElementById('wicket-modal').classList.add('hidden');
-
-window.confirmWicket = async () => {
-    // Permission guard
-    const user = AuthService.getCurrentUser();
-    if (!user || !currentMatchData || user.uid !== currentMatchData.creatorId) {
-        showToast("You don't have permission to score this match.", 'error');
-        return;
-    }
-
-    const mode = document.getElementById('dismissal-mode').value;
-    const fielder = document.getElementById('dismissal-fielder').value;
-    const nbSelect = document.getElementById('new-batter-select');
-    const newBatter = nbSelect.disabled ? null : nbSelect.value;
-
-    const ls = currentMatchData.liveScore;
-    const bowlingTeamKey = ls.bowlingTeam;
-    const wicketkeeper = currentMatchData.teams[bowlingTeamKey].wk || null;
-
-    let dismissal = { mode };
-    if (mode === 'catch') dismissal.fielder = fielder || null;
-    if (mode === 'stumping' || mode === 'runout') dismissal.fielder = wicketkeeper || null;
-    if (mode === 'bowled' || mode === 'lbw') dismissal.fielder = ls.bowler || null;
-
-    // Call central processor and get result
-    const result = await processEvent({ runs: 0, type: 'W', dismissal });
-    if (!result) return;
-
-    // If replacement provided, set it in DB appropriately.
-    if (newBatter) {
-        // fetch freshest doc
-        const doc = await db.collection('matches').doc(currentMatchId).get();
-        const fresh = { id: doc.id, ...doc.data() };
-        const freshLS = fresh.liveScore || {};
-
-        // If innings ended, don't assign replacement
-        if (result.inningsEnded) {
-            // nothing to set
-        } else {
-            // If wicket was on last ball of over -> new batsman should be non-striker at start of next over
-            if (result.overCompleted) {
-                const prevNonStriker = freshLS.nonStriker;
-                freshLS.striker = prevNonStriker; // who will face first ball next over
-                freshLS.nonStriker = newBatter;
-                if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
-            } else {
-                // normal case: replace the out striker
-                if (freshLS.striker && freshLS.playerStats && freshLS.playerStats[freshLS.striker] && freshLS.playerStats[freshLS.striker].out) {
-                    freshLS.striker = newBatter;
-                    if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
-                } else {
-                    freshLS.nonStriker = newBatter;
-                    if (!freshLS.playerStats[newBatter]) freshLS.playerStats[newBatter] = { runs:0,balls:0,fours:0,sixes:0,out:false,outInfo:null };
-                }
-            }
-            await DataService.updateMatch(currentMatchId, { liveScore: freshLS });
-        }
-    }
-
-    closeWicketModal();
-
-    // Prompt bowler change on over end (if not innings end)
-    if (result.overCompleted && !result.inningsEnded) setTimeout(() => openChangeBowlerModal(true), 200);
-    if (result.inningsEnded) showToast('Innings ended.', 'info');
-};
-/// ---------------- Bowler change ----------------
-window.openChangeBowlerModal = (fromOverEnd = false) => {
-    if (!currentMatchData) { showToast("Match not loaded.", 'error'); return; }
-    const ls = currentMatchData.liveScore;
-    if (!ls) { showToast("Live score not available.", 'error'); return; }
-    const bowlingTeamKey = ls.bowlingTeam;
-    const bowlingPlayers = currentMatchData.teams[bowlingTeamKey].players || [];
-
-    const select = document.getElementById('new-bowler-select');
-    select.innerHTML = '';
-    bowlingPlayers.forEach(p => { if (p !== ls.bowler) select.add(new Option(p,p)); });
-    if (select.options.length === 0) select.add(new Option(ls.bowler || 'No bowler', ls.bowler || ''));
-
-    document.getElementById('bowler-modal').classList.remove('hidden');
-    document.getElementById('bowler-modal').dataset.auto = fromOverEnd ? '1' : '0';
-};
-window.closeChangeBowlerModal = () => { document.getElementById('bowler-modal').classList.add('hidden'); document.getElementById('bowler-modal').dataset.auto = '0'; };
-
-window.confirmChangeBowler = async () => {
-    // Permission guard
-    const user = AuthService.getCurrentUser();
-    if (!user || !currentMatchData || user.uid !== currentMatchData.creatorId) {
-        showToast("You don't have permission to score this match.", 'error');
-        return;
-    }
-
-    const selected = document.getElementById('new-bowler-select').value;
-    if (!selected) { showToast("Please select a bowler.", 'error'); return; }
-    const lastSnapshot = currentMatchData.liveScore ? JSON.parse(JSON.stringify(currentMatchData.liveScore)) : null;
-
-    const ls = JSON.parse(JSON.stringify(currentMatchData.liveScore));
-    ls.bowler = selected;
-    ls.bowlers = ls.bowlers || {};
-    if (!ls.bowlers[selected]) ls.bowlers[selected] = { runs:0,wickets:0,overs:0,maidens:0,ballsInCurrentOver:0 };
-
-    const logEntry = { type: 'bowlerChange', newBowler: selected, time: (new Date()).toISOString() };
-
-    await DataService.updateMatch(currentMatchId, {
-        liveScore: ls,
-        lastSnapshot: lastSnapshot,
-        history: firebase.firestore.FieldValue.arrayUnion(logEntry)
-    });
-
-    closeChangeBowlerModal();
-};
-
-/// ---------------- Undo ----------------
-window.undoLastBall = async () => {
-    if (!currentMatchData || !currentMatchData.liveScore) { showToast("No match loaded.", 'error'); return; }
-    const history = currentMatchData.history || [];
-    const lastSnapshot = currentMatchData.lastSnapshot || null;
-    if (!lastSnapshot || history.length === 0) { showToast("Nothing to undo.", 'info'); return; }
-
-    const lastLog = history[history.length - 1];
-    try {
-        await DataService.updateMatch(currentMatchId, {
-            liveScore: lastSnapshot,
-            history: firebase.firestore.FieldValue.arrayRemove(lastLog),
-            lastSnapshot: firebase.firestore.FieldValue.delete()
-        });
-        showToast("Last action undone.", 'success');
-    } catch (err) {
-        console.error("Undo failed", err);
-        showToast("Undo failed. See console for details.", 'error');
-    }
-};
-
-/// ---------------- Share (viewer-only) ----------------
-window.shareMatch = () => {
-    if (!currentMatchId) { showToast("No match to share.", 'error'); return; }
-    // viewer-only link (watch) — this link is intended only for viewing; scoring controls will be hidden
-    const url = window.location.origin + window.location.pathname + `#watch/${currentMatchId}`;
-    if (navigator.share) {
-        navigator.share({ title: document.getElementById('live-match-title').innerText || 'Match', text: 'Live score (viewer link)', url })
-            .catch(err => { navigator.clipboard?.writeText(url).then(()=>showToast("Viewer link copied to clipboard.", 'success')); });
-    } else if (navigator.clipboard) {
-        navigator.clipboard.writeText(url).then(()=>{ showToast("Viewer link copied to clipboard.", 'success'); }).catch(()=>{ prompt("Copy this viewer link:", url); });
-    } else { prompt("Copy this viewer link:", url); }
-};
-
-/// ---------------- START INNINGS modal flow ----------------
-function openStartInningsModal(payload) {
-    // payload: { fullMatch, battingTeamKey, bowlingTeamKey, target, prevRuns }
-    const modal = document.getElementById('start-innings-modal');
-    if (!modal) return;
-
-    const note = document.getElementById('start-innings-note');
-    note.innerText = `Innings ended. Target for next team: ${payload.target}. Choose openers & opening bowler.`;
-
-    const sSelect = document.getElementById('start-striker-select');
-    const nsSelect = document.getElementById('start-nonstriker-select');
-    const bSelect = document.getElementById('start-bowler-select');
-
-    sSelect.innerHTML = ''; nsSelect.innerHTML = ''; bSelect.innerHTML = '';
-
-    const battingPlayers = payload.fullMatch.teams[payload.battingTeamKey].players || [];
-    const bowlingPlayers = payload.fullMatch.teams[payload.bowlingTeamKey].players || [];
-
-    battingPlayers.forEach(p => { sSelect.add(new Option(p,p)); nsSelect.add(new Option(p,p)); });
-    if (nsSelect.options.length > 1) nsSelect.selectedIndex = 1;
-    bowlingPlayers.forEach(p => bSelect.add(new Option(p,p)));
-
-    modal.classList.remove('hidden');
-}
-
-window.cancelStartInnings = () => {
-    startInningsPendingPayload = null;
-    document.getElementById('start-innings-modal').classList.add('hidden');
-    showToast("Innings start cancelled.", 'info');
-};
-
-window.confirmStartInnings = async () => {
-    if (!startInningsPendingPayload) { showToast("No innings pending.", 'error'); return; }
-    const { fullMatch, battingTeamKey, bowlingTeamKey, target } = startInningsPendingPayload;
-    const striker = document.getElementById('start-striker-select').value;
-    const nonStriker = document.getElementById('start-nonstriker-select').value;
-    const bowler = document.getElementById('start-bowler-select').value;
-
-    // Build fresh playerStats & bowlers for new innings
-    const playerStats = {};
-    (fullMatch.teams[battingTeamKey].players || []).forEach(p => { playerStats[p] = { runs:0, balls:0, fours:0, sixes:0, out:false, outInfo:null }; });
-    (fullMatch.teams[bowlingTeamKey].players || []).forEach(p => { if(!playerStats[p]) playerStats[p] = { runs:0, balls:0, fours:0, sixes:0, out:false, outInfo:null }; });
-
-    const bowlers = {};
-    (fullMatch.teams[bowlingTeamKey].players || []).forEach(p => { bowlers[p] = { runs:0, wickets:0, overs:0, maidens:0, ballsInCurrentOver:0 }; });
-
-    const newLS = {
-        battingTeam: battingTeamKey,
-        bowlingTeam: bowlingTeamKey,
-        runs: 0, wickets: 0, overs: 0,
-        striker: striker, nonStriker: nonStriker, bowler: bowler,
-        recentBalls: [], playerStats, bowlers,
-        history: [], lastSnapshot: null, innings: 2,
-        target: target, matchOvers: fullMatch.overs || 0, matchCompleted: false
-    };
-
-    const inningChangeLog = { type: 'inningsStart', time: (new Date()).toISOString(), note: `Innings 2 started. Target ${target}` };
-
-    await DataService.updateMatch(currentMatchId, {
-        liveScore: newLS,
-        status: 'live',
-        history: firebase.firestore.FieldValue.arrayUnion(inningChangeLog)
-    });
-
-    startInningsPendingPayload = null;
-    document.getElementById('start-innings-modal').classList.add('hidden');
-    showToast(`Innings 2 started. Target: ${target}`, 'success');
-};
+/* END OF FILE */
