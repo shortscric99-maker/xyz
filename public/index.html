@@ -17,8 +17,42 @@
         </header>
 
         <main id="main-container">
+            <!-- LANDING / LOGIN -->
+            <section id="view-landing" class="view active">
+                <div class="landing-card">
+                    <h2>Welcome to CricScore Pro</h2>
+                    <p>Professional cricket scoring — live, simple, shareable.</p>
+
+                    <div class="landing-actions">
+                        <button id="btn-login-open" class="primary-btn large">Login</button>
+                        <button id="btn-guest-continue" class="secondary-btn large">Continue as Guest</button>
+                    </div>
+
+                    <small class="muted">Login gives you tournament features and saves tournaments to your account.</small>
+                </div>
+            </section>
+
+            <!-- LOGIN FORM -->
+            <section id="view-login" class="view hidden">
+                <div class="card auth-card">
+                    <h2>Sign in</h2>
+                    <form id="login-form">
+                        <input type="email" id="login-email" placeholder="Email" required />
+                        <input type="password" id="login-password" placeholder="Password" required />
+                        <div class="row" style="margin-top:8px">
+                            <button type="submit" class="primary-btn">Sign In</button>
+                            <button type="button" class="secondary-btn" id="btn-back-to-landing" onclick="window.location.hash=''">Cancel</button>
+                        </div>
+                        <div class="muted" style="margin-top:8px">No account? Create one using the same form — if sign in fails try "Create account" below.</div>
+                        <div class="row" style="margin-top:8px">
+                            <button type="button" id="btn-create-account" class="secondary-btn">Create Account</button>
+                        </div>
+                    </form>
+                </div>
+            </section>
+
             <!-- 1. Dashboard -->
-            <section id="view-dashboard" class="view active">
+            <section id="view-dashboard" class="view hidden">
                 <div class="hero">
                     <h2>Professional Cricket Scoring</h2>
                     <p>Create matches, track ball-by-ball, and share live links.</p>
@@ -51,6 +85,15 @@
                                 <option value="tennis">Tennis Ball</option>
                                 <option value="leather">Leather Ball</option>
                             </select>
+                        </div>
+                        <div class="row">
+                            <label style="width:100%">
+                                Add to Tournament (optional)
+                                <select id="match-tournament-select">
+                                    <option value="">-- None --</option>
+                                    <!-- user tournaments injected here -->
+                                </select>
+                            </label>
                         </div>
                     </div>
 
@@ -207,6 +250,15 @@
                 </div>
             </section>
         </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <div class="footer-links">
+                <a href="#tournaments" id="link-tournaments">Tournaments</a>
+                <a href="#" onclick="window.location.hash='';return false;">Home</a>
+            </div>
+            <div id="user-area" class="footer-user-area"></div>
+        </footer>
     </div>
 
     <!-- Wicket Modal -->
@@ -229,13 +281,13 @@
                 </label>
             </div>
 
-            <div id="wicket-info-note" class="sub-text" style="margin-top:6px;"></div>
-
             <div id="new-batter-selection">
                 <label>New Batsman (select):
                     <select id="new-batter-select"></select>
                 </label>
             </div>
+
+            <div id="wicket-info-note" class="muted" style="font-size:0.85rem"></div>
 
             <div class="modal-actions">
                 <button class="secondary-btn" onclick="closeWicketModal()">Cancel</button>
@@ -259,36 +311,15 @@
         </div>
     </div>
 
-    <!-- Start Innings Modal (for innings 2 opener selection) -->
-    <div id="start-innings-modal" class="modal hidden">
-        <div class="modal-card">
-            <h3>Start Innings</h3>
-            <div class="sub-text" id="start-innings-note" style="margin-bottom:8px;"></div>
-            <label>Striker:
-                <select id="start-striker-select"></select>
-            </label>
-            <label>Non-Striker:
-                <select id="start-nonstriker-select"></select>
-            </label>
-            <label>Opening Bowler:
-                <select id="start-bowler-select"></select>
-            </label>
-
-            <div class="modal-actions">
-                <button class="secondary-btn" onclick="cancelStartInnings()">Cancel</button>
-                <button class="primary-btn" onclick="confirmStartInnings()">Confirm & Start</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Extra Delivery Modal -->
+    <!-- Extra Modal -->
     <div id="extra-modal" class="modal hidden">
         <div class="modal-card">
-            <h3 id="extra-modal-title">Extra Delivery</h3>
-            <div class="sub-text" id="extra-modal-note" style="margin-bottom:8px;"></div>
-            <label>Runs to credit to striker:
-                <input id="extra-run-input" type="number" min="0" value="0" />
+            <h3 id="extra-modal-title">Extra</h3>
+            <p id="extra-modal-note">Enter runs</p>
+            <label>Runs:
+                <input id="extra-run-input" type="number" value="0" min="0" />
             </label>
+
             <div class="modal-actions">
                 <button class="secondary-btn" onclick="cancelExtraModal()">Cancel</button>
                 <button class="primary-btn" onclick="confirmExtraModal()">Confirm</button>
@@ -296,8 +327,52 @@
         </div>
     </div>
 
+    <!-- Start Innings Modal -->
+    <div id="start-innings-modal" class="modal hidden">
+        <div class="modal-card">
+            <h3>Start Next Innings</h3>
+            <div id="start-innings-note" class="sub-text"></div>
+
+            <label>Striker: <select id="start-striker-select"></select></label>
+            <label>Non-striker: <select id="start-nonstriker-select"></select></label>
+            <label>Opening bowler: <select id="start-bowler-select"></select></label>
+
+            <div class="modal-actions">
+                <button class="secondary-btn" onclick="cancelStartInnings()">Cancel</button>
+                <button class="primary-btn" onclick="confirmStartInnings()">Start Innings</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Start Tournament Modal -->
+    <div id="create-tournament-modal" class="modal hidden">
+        <div class="modal-card">
+            <h3>Create Tournament</h3>
+            <label>Tournament Name:
+                <input id="tournament-name-input" type="text" />
+            </label>
+            <div class="modal-actions">
+                <button class="secondary-btn" onclick="closeCreateTournamentModal()">Cancel</button>
+                <button class="primary-btn" onclick="confirmCreateTournament()">Create</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tournament List View -->
+    <section id="view-tournaments" class="view hidden">
+        <div class="header-row">
+            <h2>Your Tournaments</h2>
+            <div>
+                <button class="primary-btn" onclick="openCreateTournamentModal()">New Tournament</button>
+                <button class="secondary-btn" onclick="window.location.hash=''">Back</button>
+            </div>
+        </div>
+        <div id="tournaments-list" class="tournaments-list"></div>
+        <div id="tournament-matches" class="matches-list"></div>
+    </section>
+
     <!-- Toast container -->
-    <div id="toast-container" class="toast-container" aria-live="polite" aria-atomic="true"></div>
+    <div id="toast-container" class="toast-container"></div>
 
     <!-- Scripts -->
     <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
