@@ -112,6 +112,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // create match button wiring
     document.getElementById('btn-create-match')?.addEventListener('click', () => window.location.hash = 'create');
+
+    // Hash change routing
+    window.addEventListener('hashchange', handleRoute);
+
+    // Initial route
+    handleRoute();
 });
 
 /* ROUTER */
@@ -195,7 +201,6 @@ function renderUserArea(user) {
         if (!user) ua.innerText = '';
         else ua.innerText = user.email || 'Guest';
     }
-    // update tournaments subscription handled elsewhere
 }
 
 /* TOURNAMENT SUBSCRIPTION & UI */
@@ -236,7 +241,7 @@ async function confirmCreateTournament() {
         document.getElementById('create-tournament-modal').classList.add('hidden');
         window.location.hash = `tournament/${id}`;
     } catch (err) {
-        console.error(err);
+        console.error('createTournament failed', err);
         showToast('Failed to create tournament: ' + (err.message || err), 'error');
     }
 }
@@ -430,7 +435,7 @@ async function processEvent(event) {
 
     const result = CricketEngine.processBall(currentMatchData, event);
 
-    // Normalize recentBalls to objects (compat)
+   // Normalize recentBalls to objects (compat)
     if (result.liveScore && Array.isArray(result.liveScore.recentBalls)) {
         result.liveScore.recentBalls = result.liveScore.recentBalls.map(b => {
             if (typeof b === 'string') {
@@ -1216,11 +1221,9 @@ window.navigateTab = (tab) => {
     else if (tab === 'profile') window.location.hash = 'profile';
 };
 
-function activateNav(tab) {
-    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
-    if (tab === 'home') document.getElementById('nav-home')?.classList.add('active');
-    else if (tab === 'tournaments') document.getElementById('nav-tournaments')?.classList.add('active');
-    else if (tab === 'profile') document.getElementById('nav-profile')?.classList.add('active');
-}
+/* Expose tournament modal handlers globally (index.html uses them) */
+window.openCreateTournamentModal = openCreateTournamentModal;
+window.closeCreateTournamentModal = closeCreateTournamentModal;
+window.confirmCreateTournament = confirmCreateTournament;
 
 /* END OF FILE */
