@@ -36,7 +36,7 @@ const DataService = {
             creatorId: user.uid,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             history: [],
-            innings: [],        // store completed innings summaries
+            innings: [],
             status: 'created'
         });
         return docRef.id;
@@ -65,6 +65,8 @@ const DataService = {
     createTournament: async (tournament) => {
         const user = auth.currentUser;
         if (!user) return null;
+        // Most projects require non-anonymous user for creating persistent resources.
+        // We still attempt to create; if Firestore rules block it the caller will catch the error.
         const docRef = await db.collection('tournaments').add({
             ...tournament,
             creatorId: user.uid,
