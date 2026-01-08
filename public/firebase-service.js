@@ -14,7 +14,7 @@ const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 
-// Allow offline persistence
+// Allow offline persistence (best-effort)
 db.enablePersistence().catch(err => console.log("Persistence error", err));
 
 const AuthService = {
@@ -29,8 +29,7 @@ const AuthService = {
 const DataService = {
     createMatch: async (matchData) => {
         const user = auth.currentUser;
-        if (!user) return null;
-
+        if (!user) return null; // must be signed in (anonymous allowed)
         const docRef = await db.collection('matches').add({
             ...matchData,
             creatorId: user.uid,
@@ -42,7 +41,7 @@ const DataService = {
         return docRef.id;
     },
 
-    // Realtime Listener
+    // Realtime Listener for a match
     subscribeToMatch: (matchId, callback) => {
         return db.collection('matches').doc(matchId)
             .onSnapshot(doc => {
@@ -50,11 +49,22 @@ const DataService = {
             });
     },
 
+    // User-only matches subscription (for dashboard)
+    subscribeToUserMatches: (userId, callback) => {
+        return db.collection('matches')
+            .where('creatorId', '==', userId)
+            .orderBy('createdAt', 'desc')
+            .onSnapshot(snap => {
+                const arr = [];
+                snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+                callback(arr);
+            });
+    },
+
     updateMatch: (matchId, data) => {
         return db.collection('matches').doc(matchId).update(data);
     },
 
-    // helper to push to innings array
     pushInningsSummary: (matchId, inningsSummary) => {
         return db.collection('matches').doc(matchId).update({
             innings: firebase.firestore.FieldValue.arrayUnion(inningsSummary)
@@ -64,9 +74,9 @@ const DataService = {
     // Tournaments
     createTournament: async (tournament) => {
         const user = auth.currentUser;
-        if (!user) return null;
-        // Most projects require non-anonymous user for creating persistent resources.
-        // We still attempt to create; if Firestore rules block it the caller will catch the error.
+        if (!user) throw new Error('Not signed in');
+        // Prevent anonymous users from creating tournaments (client-side check).
+        if (user.isAnonymous) throw new Error('Please create a real account to create tournaments.');
         const docRef = await db.collection('tournaments').add({
             ...tournament,
             creatorId: user.uid,
@@ -76,7 +86,8 @@ const DataService = {
     },
 
     subscribeToTournaments: (userId, callback) => {
-        return db.collection('tournaments').where('creatorId', '==', userId)
+        return db.collection('tournaments')
+            .where('creatorId', '==', userId)
             .orderBy('createdAt', 'desc')
             .onSnapshot(snap => {
                 const arr = [];
@@ -86,7 +97,8 @@ const DataService = {
     },
 
     subscribeToTournamentMatches: (tournamentId, callback) => {
-        return db.collection('matches').where('tournamentId', '==', tournamentId)
+        return db.collection('matches')
+            .where('tournamentId', '==', tournamentId)
             .orderBy('createdAt', 'desc')
             .onSnapshot(snap => {
                 const arr = [];
